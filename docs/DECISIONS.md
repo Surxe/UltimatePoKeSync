@@ -2542,3 +2542,57 @@ White in Italian.
 answered, which is the fallback D-039's correction added, working. It is also the state that
 sent the app into silence earlier today, so the app's own fallback still deserves the look it
 has not had.
+
+## D-065. On Linux every read waited for an acknowledgement the kernel was holding back
+
+**Status:** Accepted · 2026-11-06
+
+On Linux, reading through melonDS's GDB stub cost about three frames a read instead of one, and
+a stream of reads dragged the game down to 22 FPS. The cause is TCP, not melonDS: the client
+now asks Linux to acknowledge at once (`TCP_QUICKACK`) before every receive, which brings a
+read back to one frame and the game back to 60.
+
+**Measured on** melonDS 1.1 (the Flathub build) on Debian Linux, running an English SoulSilver,
+with the player watching the frame counter. Reads back to back, 256 bytes each, for 30 seconds:
+
+| Client | Reads in 30 s | Median read | Game while reading |
+| --- | --- | --- | --- |
+| as before | 660 | 44.0 ms | 22 FPS |
+| acknowledging at once | 1801 | 16.8 ms | 60 FPS |
+
+60 FPS idle on both sides of each run. The second row is D-039's Apple Silicon figure exactly:
+one read a frame, 15 KB/s. Through the app's own `MelonDsMemoryReader`, following a pointer
+and reading a 1424-byte party, a poll went from a median of 324 ms to 117 ms.
+
+**Why.** melonDS answers a read with two writes, its acknowledgement and then the reply, and
+its socket keeps Nagle's algorithm on, so the reply is held until the client acknowledges the
+first write. Linux delays acknowledgements by up to 40 ms once a connection looks interactive,
+which a stream of small request and reply pairs does. Each side waits for the other until the
+timer fires: 40 ms of nothing, then the frame the stub was waiting for anyway. Isolating it:
+
+| Variant | Median read |
+| --- | --- |
+| 4, 64 or 256 bytes | 44, 44, 48 ms: size is not it |
+| port 3333 or 3334 | 44 ms either: the stub is not it |
+| `TCP_QUICKACK` before each receive, any size, either port | 16.8 ms |
+
+It explains why D-039 never saw it: macOS does not delay acknowledgements this way, and
+Windows was never measured.
+
+**The fix sits in `GdbRemoteClient`**, before every receive, because Linux clears the flag once it
+has acted on it, so setting it once at connect time would hold for a few reads and then
+silently stop. .NET has no named option for it, so it is set as a raw socket option, on Linux
+only. If setting it ever fails the read still works at the old speed, so the failure is
+swallowed rather than turned into a lost connection.
+
+**Tested without an emulator.** `FakeGdbStub` can now reply the way melonDS does, two writes
+from a socket with Nagle on, and the test that times reads against it failed at 44.0 ms
+before the change, the same number the real stub produced, and passes after it. It skips
+outside Linux, where there is nothing to reproduce.
+
+**Alternatives considered:** read fewer, larger blocks (rejected: the cost is per request, not
+per byte, and the stub's 256-byte ceiling is D-039's), poll less often (rejected as the fix:
+it lowers how often the game stutters, not how long a read takes, and it delays the dashboard
+for every player to cover a problem on one platform), and ask melonDS to turn Nagle off on its
+stub (worth reporting upstream, but it would fix only new versions, while this fixes every
+version the app supports, today).
