@@ -2688,6 +2688,15 @@ the 236 bytes exactly as they sit in RAM, as `PK5` does in Gen 5.
 **It tracks the game.** Swapping the first and third party members in the menu was reflected on
 the next read, at the same head: the game rewrites the slots in place.
 
+**During a battle the party stands still.** Read in the middle of a wild battle, the party
+kept the HP of the moment the battle began: a Crobat visibly hurt on screen still read
+146/146. Gen 4 fights on a copy of its own and writes the result back when the battle ends.
+After that battle, with the game saved and reloaded, the same party read Crobat at 78/149 and
+Raikou at 50/134, with the PP they had spent and the level Crobat had gained. So the
+dashboard is right between battles and a battle behind during one: HP, PP and status there
+are the ones the Pokémon went in with. Nothing in the provider can change that without
+reading the battle structures as well, which is a separate map and a separate decision.
+
 **The cost was higher than D-039 measured, and D-065 is why.** Polling as the provider does,
 pointer then party once a second, took a median of 326 ms on Linux and let the game swing
 between 40 and 60 FPS. That turned out to be a delayed acknowledgement rather than anything
