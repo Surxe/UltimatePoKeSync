@@ -144,7 +144,7 @@ public static class SetupGuide
     /// </summary>
     public static IReadOnlyList<string> DsSteps() =>
     [
-        "Install melonDS 1.1 or later and open your Gen 5 ROM.",
+        "Install melonDS 1.1 or later and open your Gen 4 or Gen 5 ROM.",
         "Open Config → Emu settings and tick \"Enable GDB stub\".",
         "Leave the JIT recompiler off. melonDS ships that way, and the debugger only "
             + "answers when it is off.",
