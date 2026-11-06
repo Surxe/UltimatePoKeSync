@@ -2890,3 +2890,48 @@ and the subject of the next entry.
 remove the problem and paused the game for about 320 ms a poll), and read the party twice
 and keep only what agrees (rejected: it doubles the cost, and while the player walks, two
 consecutive reads straddling a rewrite agree on nothing).
+
+## D-073. A Gen 4 record is shown only when its battle stats agree with the rest of it
+
+**Status:** Accepted · 2026-11-06
+
+With every slot read whole (D-072), a SoulSilver record still came back wrong now and then
+while the player walked: battle stats in the clear and decrypted a second time into nonsense,
+or half re-encrypted so that the level and HP looked right while the maximum HP or the status
+did not. The game works on a record in place, and the stub can answer while it is part way
+through. The bits that the decompilation names as the record's "decrypted" flags stayed zero
+in every one of these reads, so there is nothing in the record that says which state it is
+in.
+
+What the record does carry is redundancy. Its stored part fixes the species, the experience
+and therefore the level, the IVs, the effort values and the nature, and from those the battle
+stats follow. So the parser now checks the battle stats against that before showing them:
+
+- the level they carry is the one the experience gives;
+- HP is not above its maximum, and the status is one the game can hold (one condition, or a
+  sleep counter, and nothing above the low byte);
+- each of the six stats lies between its value with no effort values and with 255, for that
+  species, level, IVs and nature.
+
+A range rather than an exact value, because Gen 4 recalculates stats only on level up: effort
+values earned since are in the stored part and not yet in the stats. Checking against the
+current effort values exactly rejected a perfectly healthy Crobat on every read.
+
+If the stats fail, the parser tries them as they stand, because the game sometimes leaves the
+whole block in the clear and then they are simply right. If that fails too, the slot is
+rejected, and `PartyTracker` already keeps the last good party when a snapshot has a rejected
+slot, so the player sees the Pokémon as it was a moment ago rather than as noise.
+
+Measured on a headless SoulSilver while walking, through the provider and parser the app
+uses: 83 snapshots, every reading that was shown matched the game, and the 36 rejected ones
+were all the slot the game was busy with. Before this entry and D-072, the same walk showed a
+Feraligatr at 171/8598 HP and asleep.
+
+**What is left.** The tracker holds the last good party for five snapshots in a row and then
+shows what it has. At the rate measured here a run of five is uncommon but possible, and the
+Pokémon then drops out of the list for a moment. It is never shown with wrong numbers.
+
+**Alternatives considered:** trust the record's flag bits (rejected: they were zero in every
+bad read), check the stats against the current effort values exactly (rejected: wrong for
+any Pokémon that has earned effort since its last level), and halt the CPU for each poll
+(rejected in D-072).

@@ -121,6 +121,79 @@ public sealed class Gen4PartyParserTests
         Assert.Contains(party.RejectedSlots, slot => slot.Reason == "invalid checksum");
     }
 
+    /// <summary>
+    /// The game decrypts battle stats in place while it works on a record and sets no flag to
+    /// say so. Read twice-decrypted they turn a Pokémon into a level 159 with impossible HP.
+    /// They must come out as the real numbers. See D-073.
+    /// </summary>
+    [Fact]
+    public void BattleStatsTheGameLeftInTheClearAreReadAsTheyStand()
+    {
+        RawPartySnapshot raw = Party(Dragonite());
+        byte[] data = raw.PartyData.ToArray();
+
+        // Decrypt the battle stats in place, exactly as the game does.
+        byte[] decrypted = Dragonite().Data.ToArray();
+        decrypted.AsSpan(136, 100).CopyTo(data.AsSpan(136, 100));
+
+        PokemonSnapshot dragonite = Assert.Single(_parser.Parse(raw with { PartyData = data }).Members);
+
+        Assert.Equal(58, dragonite.Level);
+        Assert.Equal(143, dragonite.CurrentHp);
+        Assert.Equal(189, dragonite.CurrentStats.Hp);
+        Assert.Equal(StatusCondition.None, dragonite.Status);
+    }
+
+    /// <summary>
+    /// Gen 4 recalculates stats only on level up, so effort values earned since are in the
+    /// record but not in its stats. That is a real Pokémon, not a bad read. See D-073.
+    /// </summary>
+    [Fact]
+    public void EffortEarnedSinceTheLastLevelUpIsNotMistakenForABadRead()
+    {
+        PK4 dragonite = Dragonite();
+        dragonite.EV_SPE += 40; // gained after its stats were last worked out
+        dragonite.RefreshChecksum();
+
+        PokemonSnapshot read = Assert.Single(_parser.Parse(Party(dragonite)).Members);
+
+        Assert.Equal(58, read.Level);
+    }
+
+    /// <summary>
+    /// A block caught half re-encrypted can keep a believable level and HP while its other
+    /// stats and status are noise. Only the full check against the computed stats catches it.
+    /// </summary>
+    [Fact]
+    public void AHalfReEncryptedBlockIsNotShown()
+    {
+        RawPartySnapshot raw = Party(Dragonite());
+        byte[] data = raw.PartyData.ToArray();
+
+        // The first eight words in the clear, the rest still encrypted: level and HP look
+        // plausible either way round only by luck, the six stats do not.
+        byte[] decrypted = Dragonite().Data.ToArray();
+        decrypted.AsSpan(136, 16).CopyTo(data.AsSpan(136, 16));
+
+        PartySnapshot party = _parser.Parse(raw with { PartyData = data });
+
+        Assert.Empty(party.Members);
+        Assert.Contains(party.RejectedSlots, slot => slot.Reason == "battle stats could not be read");
+    }
+
+    [Fact]
+    public void BattleStatsThatMakeSenseNeitherWayAreNotShown()
+    {
+        RawPartySnapshot raw = Party(Dragonite());
+        byte[] data = raw.PartyData.ToArray();
+        new Random(7).NextBytes(data.AsSpan(136, 100));
+
+        PartySnapshot party = _parser.Parse(raw with { PartyData = data });
+
+        Assert.Empty(party.Members);
+        Assert.Contains(party.RejectedSlots, slot => slot.Reason == "battle stats could not be read");
+    }
+
     [Fact]
     public void OnlyHeartGoldAndSoulSilverAreParsed()
     {
@@ -161,9 +234,9 @@ public sealed class Gen4PartyParserTests
             Nickname = "DRAKE",
             OriginalTrainerName = "TEST",
             Stat_Level = 58,
-            Stat_HPCurrent = 143,
-            Stat_HPMax = 189,
         };
+        pk.SetStats(pk.GetStats(pk.PersonalInfo));
+        pk.Stat_HPCurrent = 143;
         pk.RefreshChecksum();
         return pk;
     }
@@ -176,15 +249,15 @@ public sealed class Gen4PartyParserTests
             PID = 0x0BADF00D,
             TID16 = 1,
             SID16 = 2,
+            EXP = 3375,  // exactly Lv.15 on the Medium Fast curve, as the battle stats say
             Ability = 8, // Sand Veil
             Move1 = 10,
             Move1_PP = 35,
             Nickname = "SANDY",
             OriginalTrainerName = "TEST",
             Stat_Level = 15,
-            Stat_HPCurrent = 42,
-            Stat_HPMax = 42,
         };
+        pk.SetStats(pk.GetStats(pk.PersonalInfo));
         pk.RefreshChecksum();
         return pk;
     }

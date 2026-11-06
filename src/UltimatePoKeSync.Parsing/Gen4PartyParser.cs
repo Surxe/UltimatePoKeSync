@@ -89,6 +89,26 @@ public sealed class Gen4PartyParser : IPartyParser
                 continue;
             }
 
+            if (!BattleStatsAgree(pk))
+            {
+                // The game decrypts a record's battle stats in place while it works on them,
+                // and leaves them that way for a while without setting any flag a reader could
+                // check. Decrypting them a second time is how a Feraligatr becomes level 159
+                // and asleep. If they make sense read as they stand, that is what they are;
+                // if neither reading does, the slot is not shown. See D-073.
+                byte[] inTheClear = raw.GetSlot(slot).ToArray();
+                ScrambleBattleStats(inTheClear);
+                var retried = new PK4(inTheClear);
+
+                if (!retried.ChecksumValid || !BattleStatsAgree(retried))
+                {
+                    rejected.Add(new RejectedSlot(slot, "battle stats could not be read"));
+                    continue;
+                }
+
+                pk = retried;
+            }
+
             members.Add(ToSnapshot(slot, pk, personal));
         }
 
@@ -173,6 +193,95 @@ public sealed class Gen4PartyParser : IPartyParser
         }
 
         return moves;
+    }
+
+    /// <summary>
+    /// Whether the battle stats belong to this record, checked against what the stored part
+    /// implies: the level its experience gives, HP not above its maximum, a status the game
+    /// can actually hold, and each of the six stats inside the range the formula allows for
+    /// that species, level, IVs and nature. See D-073.
+    /// </summary>
+    /// <remarks>
+    /// A range rather than one number, because Gen 4 recalculates stats only on level up:
+    /// effort values gained since then are already in the stored part and not yet in the
+    /// stats, and a berry can lower them in the meantime. So each stat is bounded by what it
+    /// would be with no effort values and with the most a stat can hold. A block caught half
+    /// re-encrypted would have to land inside six such ranges at once, a few points wide each.
+    /// </remarks>
+    private static bool BattleStatsAgree(PK4 pk)
+    {
+        if (pk.Stat_Level != Experience.GetLevel(pk.EXP, pk.PersonalInfo.EXPGrowth)
+            || pk.Stat_HPMax == 0
+            || pk.Stat_HPCurrent > pk.Stat_HPMax
+            || !IsGen4Status(pk.Status_Condition))
+        {
+            return false;
+        }
+
+        ushort[] lowest = StatsWithEffort(pk, 0);
+        ushort[] highest = StatsWithEffort(pk, MaxEffortPerStat);
+
+        // PKHeX orders stats HP, Attack, Defense, Speed, Sp. Atk, Sp. Def.
+        ReadOnlySpan<int> actual =
+            [pk.Stat_HPMax, pk.Stat_ATK, pk.Stat_DEF, pk.Stat_SPE, pk.Stat_SPA, pk.Stat_SPD];
+
+        for (int stat = 0; stat < actual.Length; stat++)
+        {
+            if (actual[stat] < lowest[stat] || actual[stat] > highest[stat])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Gen 4 caps a single stat's effort values at 255.</summary>
+    private const int MaxEffortPerStat = 255;
+
+    private static ushort[] StatsWithEffort(PK4 pk, int effort)
+    {
+        var probe = (PK4)pk.Clone();
+        probe.EV_HP = probe.EV_ATK = probe.EV_DEF = effort;
+        probe.EV_SPA = probe.EV_SPD = probe.EV_SPE = effort;
+        return probe.GetStats(probe.PersonalInfo);
+    }
+
+    /// <summary>
+    /// The low byte holds at most one condition: sleep as a turn count in bits 0 to 2, or
+    /// exactly one of poison, burn, freeze, paralysis and bad poison in bits 3 to 7. Nothing
+    /// lives above it.
+    /// </summary>
+    private static bool IsGen4Status(int status)
+    {
+        if ((status & ~0xFF) != 0)
+        {
+            return false;
+        }
+
+        int sleep = status & 0x07;
+        int others = status & 0xF8;
+        return others == 0 || (sleep == 0 && (others & (others - 1)) == 0);
+    }
+
+    /// <summary>
+    /// Applies the battle stats' own stream cipher to bytes 136 to 235: the game's LCRNG seeded
+    /// with the personality value, XORed over each 16-bit word. XOR makes it its own inverse,
+    /// so this turns stats the game left in the clear back into the form <see cref="PK4"/>
+    /// expects, and PKHeX then undoes it.
+    /// </summary>
+    private static void ScrambleBattleStats(byte[] slot)
+    {
+        const int start = 136;
+        uint seed = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(slot);
+
+        for (int offset = start; offset + 1 < slot.Length; offset += 2)
+        {
+            seed = unchecked((seed * 0x41C64E6D) + 0x6073);
+            ushort word = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(slot.AsSpan(offset));
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+                slot.AsSpan(offset), (ushort)(word ^ (seed >> 16)));
+        }
     }
 
     private static string Lookup(IReadOnlyList<string> table, int index, string fallback) =>
