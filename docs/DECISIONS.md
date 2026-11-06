@@ -2737,3 +2737,39 @@ entry (rejected for now: it rewrites the verified Gen 5 table to add two fields 
 and 220 for every row, and the shape is easy to fold together later if more generations
 arrive), and keying the provider on `PokemonGeneration` instead of on the code (rejected for
 the reason of D-043: a game code, not a generation, is what identifies an address).
+
+## D-069. A Gen 4 parser, tested on parties nobody owns
+
+**Status:** Accepted · 2026-11-06
+
+`Gen4PartyParser` turns SoulSilver's party bytes into the domain model, and the resolver
+now offers it for HeartGold and SoulSilver. It is a sibling of `Gen5PartyParser` and
+deliberately the same shape, with `PK4` for `PK5`, the HeartGold/SoulSilver personal table,
+Gen 4's move tables for PP and type, and a species ceiling of 493. Every refusal is kept:
+slots past the declared count are never read (D-019), a slot whose checksum fails is
+rejected rather than repaired (D-008), and a species out of range is rejected.
+
+**Copied rather than generalised.** The two parsers differ in five constants and one type,
+and a parser generic over PKHeX's `PKM` would remove most of the copy. It was not done here:
+it would rewrite a Gen 5 parser that has been verified against six cartridges in order to
+add a seventh, and the shared shape is as easy to extract later as now. Platinum, Diamond
+and Pearl would be the moment, since they would make a third copy.
+
+**Species names are in capitals,** "DRAGONITE" rather than "Dragonite". That is the name the
+Gen 4 game itself prints, PKHeX returns it for generation 4 exactly as it returns
+"TREECKO" for Gen 3, and the Gen 3 parser already shows it that way.
+
+**The fixtures are synthetic, and that is a change from D-040.** The Gen 3 and Gen 5 parser
+tests replay real RAM captured from a running cartridge. The Gen 4 tests build their
+parties with PKHeX and encrypt them the way the game does, because a real capture carries
+the player's trainer name, trainer ID and nicknames, and the cartridge this was measured on
+belongs to a contributor who preferred not to commit them. What a real capture proves is
+that the parser agrees with a game that was running, and that was established a different
+way: D-067 compared the party `PK4` decodes from live RAM with the party PKHeX reads from
+the same cartridge's save file, and every field agreed. The synthetic parties are therefore
+the same form of bytes the parser meets in the game, without anyone's save in the
+repository.
+
+**Alternatives considered:** commit the capture with the trainer name and ID overwritten
+(rejected: it alters bytes under a checksum the test is meant to check, and the result is no
+longer a capture anyway), and a generic DS parser (deferred, as above).
