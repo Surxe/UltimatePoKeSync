@@ -139,10 +139,26 @@ public partial class MainWindow : Window
             CompetitiveProfile = _viewModel.IsCompetitive,
         }.Save();
 
-    protected override async void OnClosed(EventArgs e)
+    /// <remarks>
+    /// The emulators have to be told to let go before the process can exit. An async void
+    /// here returned at once, and the application could finish before the detach reached the
+    /// emulator, leaving its debugger port jammed for the next session. So the disposal is
+    /// waited for, but off the UI thread, so anything it needs from the dispatcher can still
+    /// run, and bounded, so a read stuck on a dead socket cannot keep the process alive. See
+    /// D-074.
+    /// </remarks>
+    protected override void OnClosed(EventArgs e)
     {
         SaveLayout();
         base.OnClosed(e);
-        await _viewModel.DisposeAsync();
+
+        try
+        {
+            Task.Run(() => _viewModel.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(3));
+        }
+        catch (AggregateException)
+        {
+            // Shutting down regardless; whatever failed has nowhere left to be reported.
+        }
     }
 }

@@ -2935,3 +2935,52 @@ Pokémon then drops out of the list for a moment. It is never shown with wrong n
 bad read), check the stats against the current effort values exactly (rejected: wrong for
 any Pokémon that has earned effort since its last level), and halt the CPU for each poll
 (rejected in D-072).
+
+## D-074. Closing the window must detach from the emulator before the process ends
+
+**Status:** Accepted · 2026-11-06
+
+Closing the window could leave melonDS's debugger port jammed, for every player and in every
+generation. Twice on the author's machine the port had to be reset by restarting melonDS.
+The stub stays wedged when the app drops its connection without the detach packet (`D`)
+having been answered, and the app was dropping it that way.
+
+**What was happening.** Closing the window ran `MainWindow.OnClosed`, an `async void` that
+started disposing the view model and returned at once. Disposal then cancelled the poll loops
+and waited for them, and the loops did not end: each one resumed, after cancellation, on the
+UI thread, because the `await foreach` over the party tracker had no `ConfigureAwait(false)`.
+The UI thread was free to run that continuation only once the application had finished, so
+the loops never ended, the providers were never asked to detach, and the process exited with
+the connection still open.
+
+Reproduced headlessly, with a window closed at a varied time, against a melonDS on a port of
+its own: before the fix, the stub was left in CLOSE-WAIT and did not answer on the next probe
+in the first run. After it, twelve closes in twelve runs left no socket behind, the process
+exited each time, and the stub answered as usual.
+
+**Three changes, each needed.**
+- The poll loop in `LiveTeamService` resumes off the UI thread. This is the cause.
+- `OnClosed` waits, bounded to three seconds, for the disposal to finish, off the UI thread
+  so the disposal is not blocked by the thread it is waiting on. Without the bound, a read
+  stuck on a dead socket would keep the process alive. An `async void` cannot be awaited by
+  the window, which is why it is not the fix on its own.
+- The detach itself waits for any read still on the wire before sending `D`, so the two never
+  interleave. The exchange lock is no longer disposed. Before, a read cancelled at that moment
+  released a disposed lock, threw, and skipped the rest of shutdown. A test with a read in
+  flight failed until this was in.
+
+**Tests.** `ShuttingDownDoesNotNeedTheUiThreadToFinish` runs the service on a synchronization
+context that never runs queued work, which is what the thread is during close, and requires
+disposal to finish. It fails without the loop change, at its five-second limit. Two
+`ShutdownTests` cover cancelling the poll and disposing, and disposing with a read in flight,
+and require the emulator to receive `D`.
+
+**Not covered.** The check on the real window is a headless close through `xdotool`, not a
+player's mouse on a player's desktop, and the default-port path was exercised through the
+port variable rather than the default itself. The first run on the player's machine is the
+confirmation.
+
+**Alternatives considered:** make `OnClosed` synchronous and block the UI thread (rejected:
+it is the deadlock above, and the loop change is what removes it), and leave the app to
+exit and rely on the operating system to close the socket (rejected: the emulator does not
+treat a dropped socket as a detach, which is the whole problem).

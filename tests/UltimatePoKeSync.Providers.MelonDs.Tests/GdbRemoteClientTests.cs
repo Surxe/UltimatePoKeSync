@@ -1,3 +1,4 @@
+using UltimatePoKeSync.Contracts;
 using Xunit;
 
 namespace UltimatePoKeSync.Providers.MelonDs.Tests;
@@ -161,5 +162,66 @@ public sealed class GdbRemoteClientTests
         // Port 1 on loopback is not something anyone is listening on.
         await Assert.ThrowsAnyAsync<Exception>(
             () => GdbRemoteClient.ConnectAsync("127.0.0.1", 1, Token));
+    }
+}
+
+/// <summary>
+/// The app closes a window by cancelling the poll loop and then disposing the provider.
+/// However the two interleave, the emulator must be told to let go, or its debugger port is
+/// left jammed for the next session. See D-074.
+/// </summary>
+public sealed class ShutdownTests
+{
+    private static CancellationToken Token => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task CancellingThePollThenDisposingDetachesTheEmulator()
+    {
+        await using var stub = new FakeGdbStub(Gen5Ram.BaseAddress, Gen5Ram.Build());
+        var provider = new MelonDsProvider("127.0.0.1", stub.Port, TimeSpan.FromMilliseconds(5));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
+#pragma warning disable xUnit1051 // this loop is cancelled by the test on purpose, not by the host
+        Task loop = Task.Run(async () =>
+        {
+            await foreach (RawPartySnapshot snapshot in provider.ReadSnapshotsAsync(cancellation.Token))
+            {
+                _ = snapshot;
+            }
+        });
+#pragma warning restore xUnit1051
+
+        await Task.Delay(200, Token);
+        cancellation.Cancel();
+        await loop.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        await provider.DisposeAsync();
+
+        Assert.Equal("D", stub.Commands[^1]);
+    }
+
+    [Fact]
+    public async Task DisposingWhileAReadIsInFlightStillDetaches()
+    {
+        await using var stub = new FakeGdbStub(Gen5Ram.BaseAddress, Gen5Ram.Build());
+        var provider = new MelonDsProvider("127.0.0.1", stub.Port, TimeSpan.FromMilliseconds(1));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
+#pragma warning disable xUnit1051 // this loop is cancelled by the test on purpose, not by the host
+        Task loop = Task.Run(async () =>
+        {
+            await foreach (RawPartySnapshot snapshot in provider.ReadSnapshotsAsync(cancellation.Token))
+            {
+                _ = snapshot;
+            }
+        });
+#pragma warning restore xUnit1051
+
+        // Cancel without waiting for the loop to notice, so a read is still on the wire.
+        await Task.Delay(50, Token);
+        cancellation.Cancel();
+        await provider.DisposeAsync();
+        await loop.WaitAsync(TimeSpan.FromSeconds(5), Token);
+
+        Assert.Equal("D", stub.Commands[^1]);
     }
 }

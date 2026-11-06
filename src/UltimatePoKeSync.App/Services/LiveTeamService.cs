@@ -195,7 +195,12 @@ public sealed class LiveTeamService : ILiveTeamSource
     {
         try
         {
-            await foreach (PartySnapshot party in watched.Tracker.TrackAsync(_cancellation.Token))
+            // Resumes off the UI thread. The window waits for these loops to finish while it
+            // closes, so a loop that needed the dispatcher to end would hold the detach
+            // hostage. See D-074.
+            await foreach (PartySnapshot party in watched.Tracker
+                .TrackAsync(_cancellation.Token)
+                .ConfigureAwait(false))
             {
                 lock (_gate)
                 {

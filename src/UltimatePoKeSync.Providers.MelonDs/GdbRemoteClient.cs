@@ -231,15 +231,32 @@ internal sealed class GdbRemoteClient : IAsyncDisposable
     /// Detaches before hanging up. Without it the emulated CPU stays where our connection
     /// left it, and the game is frozen for the person holding the controller.
     /// </summary>
+    /// <remarks>
+    /// The detach waits for any read still on the wire to finish or be cancelled, so the two
+    /// never interleave on the socket. The exchange lock is deliberately not disposed: a read
+    /// cancelled at the same moment releases it, and a disposed lock would throw there instead
+    /// of letting the cancellation through. See D-074.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         if (_running)
         {
+            _running = false;
+
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-                await SendPacketAsync("D", timeout.Token).ConfigureAwait(false);
-                await ReadPacketAsync(timeout.Token).ConfigureAwait(false);
+                await _exchange.WaitAsync(timeout.Token).ConfigureAwait(false);
+
+                try
+                {
+                    await SendPacketAsync("D", timeout.Token).ConfigureAwait(false);
+                    await ReadPacketAsync(timeout.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _exchange.Release();
+                }
             }
             catch (Exception)
             {
@@ -248,7 +265,6 @@ internal sealed class GdbRemoteClient : IAsyncDisposable
             }
         }
 
-        _exchange.Dispose();
         _socket.Dispose();
     }
 }

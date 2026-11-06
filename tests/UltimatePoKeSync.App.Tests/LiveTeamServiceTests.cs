@@ -1,4 +1,5 @@
 using UltimatePoKeSync.App.Services;
+using UltimatePoKeSync.Providers.MGba;
 using UltimatePoKeSync.Contracts;
 using Xunit;
 
@@ -74,4 +75,44 @@ public sealed class LiveTeamServiceTests
     [InlineData("70000", null)]
     public void AMelonDsPortComesFromTheEnvironmentOnlyWhenItIsAPort(string? value, int? expected) =>
         Assert.Equal(expected, LiveTeamService.ParseMelonDsPort(value));
+
+    /// <summary>
+    /// Stands in for the UI thread while the window is closing: work posted to it never runs,
+    /// because the thread is blocked waiting for the shutdown to finish.
+    /// </summary>
+    private sealed class BlockedUiThread : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback callback, object? state)
+        {
+            // Deliberately never run.
+        }
+    }
+
+    /// <summary>
+    /// Closing the window waits for the emulator loops to end, and the window's thread cannot
+    /// run anything while it waits. The loops must therefore finish without it, or the
+    /// emulators are never told to let go. See D-074.
+    /// </summary>
+    [Fact]
+    public async Task ShuttingDownDoesNotNeedTheUiThreadToFinish()
+    {
+        var options = new MGbaProviderOptions { Port = 1 };
+        var service = new LiveTeamService(options, melonDsPort: 1);
+
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new BlockedUiThread());
+        try
+        {
+            service.Start();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+
+        await service.DisposeAsync().AsTask().WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+    }
 }
