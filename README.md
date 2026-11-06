@@ -157,6 +157,9 @@ On mGBA, check the scripting console for errors and make sure no second copy is 
 died without disconnecting cleanly, one of melonDS's two debug stubs can be left wedged; the
 app tries both, and reloading the ROM clears it.
 
+If melonDS's ARM7 stub is on a port other than 3334, for example a second melonDS running
+beside your own, set `UPKS_MELONDS_PORT` to that port before starting the app.
+
 </details>
 
 <details>

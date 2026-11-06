@@ -59,4 +59,19 @@ public sealed class LiveTeamServiceTests
         EmulatorConnectionState first,
         EmulatorConnectionState second) =>
         new[] { first, second }.MinBy(LiveTeamService.Rank);
+
+    /// <summary>
+    /// The melonDS port override is a contributor's tool, so a bad value costs the override
+    /// and nothing else. See D-066.
+    /// </summary>
+    [Theory]
+    [InlineData("3434", 3434)]
+    [InlineData(" 3434 ", 3434)]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("melon", null)]
+    [InlineData("0", null)]
+    [InlineData("70000", null)]
+    public void AMelonDsPortComesFromTheEnvironmentOnlyWhenItIsAPort(string? value, int? expected) =>
+        Assert.Equal(expected, LiveTeamService.ParseMelonDsPort(value));
 }
