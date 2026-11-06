@@ -10,9 +10,9 @@ namespace UltimatePoKeSync.Providers.MelonDs;
 /// <para>
 /// This polls where the mGBA provider is pushed to. There is no script on the other side to
 /// notice a change and send it: melonDS answers questions, so the questions have to be
-/// asked. Each poll is one 4-byte read to follow the pointer and six of 256 bytes for the
-/// party, about 95 ms in total (D-039), which is why the default interval is a second
-/// rather than a frame.
+/// asked. Each poll is one 4-byte read to follow the pointer, one for the party header and
+/// one per slot (D-072), which is why the default interval is a second rather than a
+/// frame.
 /// </para>
 /// <para>
 /// A snapshot is emitted only when the bytes change, so a party sitting still costs the
@@ -145,18 +145,22 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
             return null;
         }
 
-        int length = Gen5MemoryMap.FirstSlotOffset + (slotSize * Gen5MemoryMap.SlotCapacity);
-
-        byte[]? block = await _reader
-            .ReadMemoryAsync(head, length, cancellationToken)
+        // The header, then each slot in a request of its own. The stub answers one request a
+        // frame, and the game rewrites a Pokémon's record while the player walks, so a read
+        // that splits a slot across two requests can join one frame's personality value and
+        // checksum to the next frame's data: a record that fails its checksum, or decodes into
+        // nonsense, though the game never held it. A slot fits in one request in both
+        // generations, so no record is ever read across a frame boundary. See D-072.
+        byte[]? partyHeader = await _reader
+            .ReadMemoryAsync(head, Gen5MemoryMap.FirstSlotOffset, cancellationToken)
             .ConfigureAwait(false);
 
-        if (block is null)
+        if (partyHeader is null)
         {
             return null;
         }
 
-        int count = BitConverter.ToInt32(block, Gen5MemoryMap.PartyCountOffset);
+        int count = BitConverter.ToInt32(partyHeader, Gen5MemoryMap.PartyCountOffset);
         if (count is < 0 or > Gen5MemoryMap.SlotCapacity)
         {
             // Following the pointer landed somewhere that is not a party. Saying nothing is
@@ -164,10 +168,28 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
             return null;
         }
 
+        var slots = new byte[slotSize * Gen5MemoryMap.SlotCapacity];
+        for (int slot = 0; slot < Gen5MemoryMap.SlotCapacity; slot++)
+        {
+            byte[]? bytes = await _reader
+                .ReadMemoryAsync(
+                    (uint)(head + Gen5MemoryMap.FirstSlotOffset + (slot * slotSize)),
+                    slotSize,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (bytes is null)
+            {
+                return null;
+            }
+
+            bytes.CopyTo(slots, slot * slotSize);
+        }
+
         return new RawPartySnapshot(
             game,
             count,
-            block.AsMemory(Gen5MemoryMap.FirstSlotOffset),
+            slots,
             slotSize,
             DateTimeOffset.UtcNow,
             ++_sequence);

@@ -106,4 +106,44 @@ public sealed class Gen4ProviderTests
         Assert.Null(await MelonDsProviderTests.FirstSnapshotOrNull(
             provider, TimeSpan.FromMilliseconds(400)));
     }
+
+    /// <summary>
+    /// The game rewrites a record while the player walks, and the stub answers one request a
+    /// frame, so a slot split across two requests can be stitched from two frames. Each slot
+    /// must arrive in a request of its own, in both generations. See D-072.
+    /// </summary>
+    [Theory]
+    [InlineData("IPGE")]
+    [InlineData("IRBI")]
+    public async Task NoReadRequestSpansTwoSlots(string gameCode)
+    {
+        bool gen4 = gameCode == "IPGE";
+        byte[] ram = gen4 ? Gen4Ram.Build() : Gen5Ram.Build();
+        uint head = gen4 ? Gen4Ram.PartyHead : Gen5Ram.PartyHead;
+        int slotSize = gen4 ? Gen4MemoryMap.SlotSize : Gen5MemoryMap.SlotSize;
+
+        await using var stub = new FakeGdbStub(Gen5Ram.BaseAddress, ram);
+        await using var provider = new MelonDsProvider(
+            "127.0.0.1", stub.Port, TimeSpan.FromMilliseconds(20));
+
+        await MelonDsProviderTests.FirstSnapshot(provider);
+
+        uint firstSlot = head + (uint)Gen5MemoryMap.FirstSlotOffset;
+        uint end = firstSlot + (uint)(slotSize * Gen5MemoryMap.SlotCapacity);
+        (uint Address, int Length)[] partyReads =
+        [
+            .. stub.Commands.ToArray()
+                .Where(command => command.StartsWith('m'))
+                .Select(command => command[1..].Split(','))
+                .Select(parts => (Convert.ToUInt32(parts[0], 16), Convert.ToInt32(parts[1], 16)))
+                .Where(read => read.Item1 >= firstSlot && read.Item1 < end),
+        ];
+
+        Assert.NotEmpty(partyReads);
+        Assert.All(partyReads, read =>
+        {
+            Assert.Equal(0u, (read.Address - firstSlot) % (uint)slotSize);
+            Assert.Equal(slotSize, read.Length);
+        });
+    }
 }

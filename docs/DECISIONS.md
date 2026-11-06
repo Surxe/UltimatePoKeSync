@@ -2852,3 +2852,41 @@ team gap, a team score with its reasons, and Outrage six levels away.
 **Alternatives considered:** answer for every Gen 4 code from the shared tables (rejected:
 Platinum's learnsets differ, and the location evolutions would be promised to players who
 cannot reach them), and generalise the Gen 5 sources (deferred, for the reason of D-069).
+
+## D-072. A slot is read in one request, because the game rewrites it between frames
+
+**Status:** Accepted · 2026-11-06
+
+Every few seconds a SoulSilver party member came back as a level 159 with 30921/8595 HP
+and asleep, then as itself again. The cause is in the provider, and it applies to Gen 5 as
+much as to Gen 4.
+
+The party used to be read as one block, which the reader split into requests of 256 bytes,
+and the stub answers one request a frame (D-039). The boundaries of those requests fall
+inside slots: in Gen 4 the second slot starts at byte 244 of the block, so its personality
+value and checksum came from one request and the rest of it from the next, a frame later.
+While the player walks, the game rewrites party records every step, re-encrypting each with
+a new checksum. A record joined across that boundary is a record the game never held: it
+fails its checksum, so the slot is rejected and the Pokémon vanishes, or its battle stats
+decrypt with the wrong key and it turns into the level 159 above.
+
+Measured on a headless SoulSilver while walking back and forth: reading the party the old
+way, the slot straddling the first boundary was bad in 36 of 36 reads, and re-reading the
+same slot alone straight afterwards was clean every time. Read with one request per slot,
+it was clean in 36 of 36. Halting the CPU around the old read did not help, because the
+seam is between the provider's requests, and it froze the game for a third of a second.
+
+So the provider now reads the eight-byte party header, then each slot in a request of its
+own. A slot is 236 bytes in Gen 4 and 220 in Gen 5, both inside the stub's 256-byte limit,
+so a record is always taken from a single frame. It costs one request more than before.
+A test asserts, for a Gen 4 and a Gen 5 cartridge, that no read request covers parts of two
+slots; against the old provider it fails for both.
+
+This is not the whole story for Gen 4: with every slot read whole, a record still
+occasionally comes back with its battle stats in the clear, which is the game's own doing
+and the subject of the next entry.
+
+**Alternatives considered:** halt the CPU for the duration of a poll (rejected: it did not
+remove the problem and paused the game for about 320 ms a poll), and read the party twice
+and keep only what agrees (rejected: it doubles the cost, and while the player walks, two
+consecutive reads straddling a rewrite agree on nothing).
