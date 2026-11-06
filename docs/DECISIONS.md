@@ -2596,3 +2596,29 @@ it lowers how often the game stutters, not how long a read takes, and it delays 
 for every player to cover a problem on one platform), and ask melonDS to turn Nagle off on its
 stub (worth reporting upstream, but it would fix only new versions, while this fixes every
 version the app supports, today).
+
+## D-066. One environment variable picks the melonDS port
+
+**Status:** Accepted · 2026-11-06
+
+`UPKS_MELONDS_PORT` makes the dashboard read the GDB stub on that port instead of the
+default. It exists for whoever measures a cartridge. A contributor mapping a new game runs a
+second, headless melonDS on ports of its own beside the melonDS they play on, which holds
+3333 and 3334, and the dashboard has to read the second without touching the first.
+Connecting halts the emulated CPU and a client that dies without detaching can leave a stub
+wedged (D-039), so reading the player's instance by accident is not harmless.
+
+An environment variable rather than a setting in the window, because this is a tool for
+contributors and not something a player should meet: the default stays the only thing on
+screen. A value that is not a port is ignored rather than fatal, so a typo costs the
+override and nothing else.
+
+**What this does not change.** The provider already passes one port to the reader, the
+ARM7 one by default, so this does not alter how many stubs are tried; it only says which.
+That the default never falls back to the ARM9 stub, although D-039's correction intended it
+to, is a separate matter.
+
+**Alternatives considered:** a command-line argument (rejected: the app is started from a
+desktop launcher or a Finder double-click far more often than from a shell, and an argument
+does not survive those), and a field in the settings file (rejected: it would persist a
+contributor's port into a player's next run).

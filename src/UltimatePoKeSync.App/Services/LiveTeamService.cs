@@ -33,12 +33,21 @@ public sealed class LiveTeamService : ILiveTeamSource
     private EmulatorConnectionState _reported = EmulatorConnectionState.Idle;
     private Task? _loops;
 
+    /// <summary>
+    /// Names the melonDS GDB stub port to use instead of the default ARM7 one. For a
+    /// second melonDS running beside the player's own, as a contributor measuring a cartridge
+    /// does, so the app reads the instance it was meant to. See D-066.
+    /// </summary>
+    public const string MelonDsPortVariable = "UPKS_MELONDS_PORT";
+
     public LiveTeamService()
-        : this(new MGbaProviderOptions())
+        : this(
+            new MGbaProviderOptions(),
+            ParseMelonDsPort(Environment.GetEnvironmentVariable(MelonDsPortVariable)))
     {
     }
 
-    public LiveTeamService(MGbaProviderOptions options)
+    public LiveTeamService(MGbaProviderOptions options, int? melonDsPort = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -47,9 +56,19 @@ public sealed class LiveTeamService : ILiveTeamSource
         var mgba = new MGbaProvider(options);
         Add(mgba, mgba, "mGBA");
 
-        var melon = new MelonDsProvider();
+        var melon = melonDsPort is int port
+            ? new MelonDsProvider(port: port)
+            : new MelonDsProvider();
         Add(melon, melon, "melonDS");
     }
+
+    /// <summary>
+    /// A port from the environment, or null to keep the defaults. Anything that is not a
+    /// usable TCP port is ignored rather than fatal: a typo should cost the override, not
+    /// the app.
+    /// </summary>
+    internal static int? ParseMelonDsPort(string? value) =>
+        int.TryParse(value, out int port) && port is > 0 and <= 65535 ? port : null;
 
     public event EventHandler<EmulatorConnectionState>? StateChanged;
 
