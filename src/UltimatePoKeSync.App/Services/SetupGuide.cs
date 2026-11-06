@@ -165,7 +165,9 @@ public static class SetupGuide
     public static string DsRomNote =>
         "English ROMs are the supported ones for DS games. Every cartridge keeps its party at "
         + "its own address, so each has to be measured against a running game. Measured so far: "
-        + string.Join(", ", Gen5MemoryMap.Mapped)
+        + string.Join(
+            ", ",
+            Gen4MemoryMap.Mapped.Concat(Gen5MemoryMap.Mapped).Order(StringComparer.Ordinal))
         + ". Any other language is recognised and refused rather than read at a guessed address.";
 
     /// <summary>Shown when the port is busy, which is nearly always a second mGBA.</summary>

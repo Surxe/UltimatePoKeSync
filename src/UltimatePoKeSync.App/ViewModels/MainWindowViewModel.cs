@@ -326,9 +326,12 @@ public sealed partial class MainWindowViewModel : ObservableObject, IAsyncDispos
                 return "No party bytes yet";
             }
 
-            int bytes = _party.Game.Generation == PokemonGeneration.Gen5
-                ? 220 * 6
-                : 100 * 6;
+            int bytes = _party.Game.Generation switch
+            {
+                PokemonGeneration.Gen5 => 220 * 6,
+                PokemonGeneration.Gen4 => 236 * 6,
+                _ => 100 * 6,
+            };
             return $"{bytes} · signature {ComputePartySignature(_party)}";
         }
     }
