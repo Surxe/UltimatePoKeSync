@@ -2812,3 +2812,34 @@ rules", which is no longer true. They now use Gen 6, and check the same thing.
 **Alternatives considered:** reuse `Gen5Rules` for Gen 4 (rejected: wrong for Lightning Rod,
 Storm Drain and twenty move powers), and a copy of the importer per generation (rejected: two
 scripts for one difference in two constants).
+
+## D-071. HeartGold and SoulSilver learnsets, evolutions and base stats, from PKHeX
+
+**Status:** Accepted · 2026-11-06
+
+The "coming up" timeline, the evolution line and stat projection now work for a SoulSilver
+party. Each comes from PKHeX the way the Gen 3 and Gen 5 ones do, as one more line in
+`PKHeXSources`, which is the extension point D-043 built: `PKHeXGen4MoveLearnSource` over
+`LearnSource4HGSS`, `PKHeXGen4EvolutionSource` over PKHeX's Gen 4 table, and the
+HeartGold/SoulSilver personal table for base stats.
+
+**Johto only.** The learn source answers HeartGold and SoulSilver and refuses Diamond, Pearl
+and Platinum, which teach at levels of their own, for the reason of D-027. The evolution
+source is limited the same way for a different reason: PKHeX's Gen 4 table is shared, but
+four of its evolutions need a magnetic field, a mossy rock or an icy rock, all of which are
+in Sinnoh. Answering for Johto only lets the card say plainly that Magnezone, Probopass,
+Leafeon and Glaceon do not happen in these games, instead of promising them.
+
+**Gen 4's new triggers are described rather than left to the fallback.** Holding an item by
+day or by night (Gligar, Sneasel, Happiny), knowing a move (Yanmega, Ambipom, Mamoswine and
+others), and a teammate in the party (Mantyke) each get a sentence naming the item, move or
+species. A test walks all 493 species and fails if any step still reads "under a condition
+this app does not know".
+
+**Checked live.** Through `UPKS_MELONDS_PORT` (D-066), the dashboard against a running
+SoulSilver showed a Dragonite's moves with Gen 4 categories and powers, its matchups and a
+team gap, a team score with its reasons, and Outrage six levels away.
+
+**Alternatives considered:** answer for every Gen 4 code from the shared tables (rejected:
+Platinum's learnsets differ, and the location evolutions would be promised to players who
+cannot reach them), and generalise the Gen 5 sources (deferred, for the reason of D-069).
