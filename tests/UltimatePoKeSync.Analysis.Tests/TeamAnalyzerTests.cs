@@ -146,13 +146,13 @@ public sealed class TeamAnalyzerTests
     [Fact]
     public void UnsupportedGenerationFailsInsteadOfUsingTheWrongRules()
     {
-        var game = new GameIdentity("TEST", "TEST", 0, PokemonGeneration.Gen4);
+        var game = new GameIdentity("TEST", "TEST", 0, PokemonGeneration.Gen6);
         var party = new PartySnapshot(game, [], DateTimeOffset.UnixEpoch, 1, []);
 
         NotSupportedException error = Assert.Throws<NotSupportedException>(
             () => _analyzer.Analyze(party));
 
-        Assert.Contains("Gen4", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Gen6", error.Message, StringComparison.Ordinal);
     }
 
     private static DefensiveTypeCoverage FindDefense(

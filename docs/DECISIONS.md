@@ -2773,3 +2773,42 @@ repository.
 **Alternatives considered:** commit the capture with the trainer name and ID overwritten
 (rejected: it alters bytes under a checksum the test is meant to check, and the result is no
 longer a capture anyway), and a generic DS parser (deferred, as above).
+
+## D-070. Gen 4 rules: Gen 5's shape, Gen 4's numbers, and two abilities that only redirect
+
+**Status:** Accepted · 2026-11-06
+
+SoulSilver gets battle rules, so type matchups, offensive coverage and the team score work
+for a Gen 4 party. `Gen4Rules` is a sibling of `Gen5Rules` for the reason D-069 gives for
+the parser, and it differs in three places.
+
+**The move table is Gen 4's.** 467 moves, from the same Showdown revision the other
+generations are pinned to, reconstructed by applying the `gen4` override after `gen5`. The
+importer gained `--generation=4` rather than being copied: Gen 4 differs from Gen 5 in the
+last move number and one more override, and nothing else. Run without the flag it still
+reproduces the committed Gen 5 files byte for byte, which was checked before the Gen 4 ones
+were generated. Twenty moves come out different from Gen 5, every one a power change Gen 5
+made: Tackle 35, Giga Drain and Drain Punch 60, Feint 50. No category differs, because the
+physical/special split is itself a Gen 4 change and Gen 5 inherited it unchanged.
+
+**Lightning Rod and Storm Drain are not immunities.** In Gen 4 they draw a move to their
+holder, who still takes it; Gen 5 is where they started to absorb it. Treating them as
+immunities, as a copy of `Gen5Rules` would have, would hide a real weakness in exactly the
+team that relies on them. Sap Sipper does not exist yet. A test checks both generations
+side by side, so the difference cannot be lost in either direction.
+
+**The type chart and natures are their own files** with the same contents as Gen 5's,
+because `TableTypeChart` and `NatureTable` require each generation to declare its own data
+rather than borrow another's, and a test pins that the two charts agree.
+
+**Recommendations are not part of this.** There are no Gen 4 Random Battle sets, so the
+window keeps saying recommendations are unavailable for this game while matchups and the
+team score are shown, which is the behaviour D-043 built for a generation without them. The
+Gen 4 move catalog exists anyway, because the learnsets need it to name a move.
+
+**Three tests changed their example.** They used Gen 4 to stand for "a generation with no
+rules", which is no longer true. They now use Gen 6, and check the same thing.
+
+**Alternatives considered:** reuse `Gen5Rules` for Gen 4 (rejected: wrong for Lightning Rod,
+Storm Drain and twenty move powers), and a copy of the importer per generation (rejected: two
+scripts for one difference in two constants).

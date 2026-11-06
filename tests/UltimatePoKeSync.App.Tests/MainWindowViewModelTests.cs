@@ -363,7 +363,7 @@ public sealed class MainWindowViewModelTests
 
         source.RaiseParty(party with
         {
-            Game = party.Game with { GameCode = "AXVJ", Generation = PokemonGeneration.Gen4 },
+            Game = party.Game with { GameCode = "AXVJ", Generation = PokemonGeneration.Gen6 },
         });
 
         Assert.True(viewModel.HasTeam);

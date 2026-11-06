@@ -17,6 +17,7 @@ public sealed class GenerationRulesResolver : IGenerationRulesResolver
     public IGenerationRules? Resolve(PokemonGeneration generation) => generation switch
     {
         PokemonGeneration.Gen3 => Gen3Rules.Instance,
+        PokemonGeneration.Gen4 => Gen4Rules.Instance,
         PokemonGeneration.Gen5 => Gen5Rules.Instance,
         _ => null,
     };

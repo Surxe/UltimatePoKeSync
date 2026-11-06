@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-// Move metadata for Gen 5, from Pokémon Showdown, pinned to the same commit as the Gen 3
+// Move metadata for Gen 5, and with --generation=4 for Gen 4, from Pokémon Showdown, pinned to the same commit as the Gen 3
 // import so both generations describe the same snapshot of the world. See D-024 and D-041.
 //
 // Showdown stores the *current* generation's data and walks backwards through per-generation
@@ -11,17 +11,32 @@ import fs from "node:fs";
 //
 // Usage:
 //   node tools/import-showdown-gen5-data.mjs <moves.ts> <gen8> <gen7> <gen6> <gen5>
+//   node tools/import-showdown-gen5-data.mjs --generation=4 <moves.ts> <gen8> ... <gen5> <gen4>
+//
+// Gen 4 is the same import with one more mod applied last and a lower ceiling: the
+// physical/special split already belongs to the move there, so the output has the same
+// shape. Without --generation the script behaves exactly as it always has. See D-070.
 
 const revision = "db93869dcc216c0be39e7f86e9a64edcc7496d89";
 
-/// Gen 5 ends at Fusion Bolt. Anything above it did not exist in Black and White.
-const lastGen5Move = 559;
+/// The last move each generation has. Gen 5 ends at Fusion Bolt, Gen 4 at Shadow Force;
+/// anything above did not exist in those games.
+const lastMoveByGeneration = { 4: 467, 5: 559 };
 
 const flags = process.argv.slice(2).filter((argument) => argument.startsWith("--"));
 const [basePath, ...modPaths] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 
+const generationFlag = flags.find((flag) => flag.startsWith("--generation="));
+const generation = generationFlag ? Number(generationFlag.slice("--generation=".length)) : 5;
+const lastMove = lastMoveByGeneration[generation];
+
+if (lastMove === undefined) {
+  throw new Error(`Unsupported generation: ${generation}. Known: 4, 5.`);
+}
+
 if (!basePath || modPaths.length === 0) {
-  throw new Error("Usage: node import-showdown-gen5-data.mjs <moves.ts> <gen8> ... <gen5>");
+  throw new Error(
+    "Usage: node import-showdown-gen5-data.mjs [--generation=4] <moves.ts> <gen8> ... <gen5> [<gen4>]");
 }
 
 const moves = parse(fs.readFileSync(basePath, "utf8"));
@@ -45,12 +60,12 @@ for (const modPath of modPaths) {
   }
 }
 
-const basePowers = new Array(lastGen5Move + 1).fill(0);
-const categories = new Array(lastGen5Move + 1).fill("Status");
+const basePowers = new Array(lastMove + 1).fill(0);
+const categories = new Array(lastMove + 1).fill("Status");
 const catalog = [];
 
 for (const [id, move] of moves) {
-  if (!(move.num >= 1 && move.num <= lastGen5Move)) {
+  if (!(move.num >= 1 && move.num <= lastMove)) {
     continue;
   }
 
@@ -64,7 +79,7 @@ for (const [id, move] of moves) {
 }
 
 const missing = [];
-for (let id = 1; id <= lastGen5Move; id++) {
+for (let id = 1; id <= lastMove; id++) {
   if (!catalog.some((move) => move.number === id)) {
     missing.push(id);
   }
@@ -89,8 +104,8 @@ const unique = [...byNumber.values()].sort((left, right) => left.number - right.
 
 const which = flags.includes("--catalog") ? "catalog" : "power";
 const output = which === "catalog"
-  ? { generation: 5, revision, moves: unique }
-  : { generation: 5, revision, basePowers, categories };
+  ? { generation, revision, moves: unique }
+  : { generation, revision, basePowers, categories };
 
 process.stdout.write(JSON.stringify(output, null, 2) + "\n");
 

@@ -120,6 +120,6 @@ public sealed class Gen3RulesTests
     public void ResolverDoesNotPretendUnsupportedGenerationsUseGen3Rules()
     {
         Assert.Same(_rules, GenerationRulesResolver.Default.Resolve(PokemonGeneration.Gen3));
-        Assert.Null(GenerationRulesResolver.Default.Resolve(PokemonGeneration.Gen4));
+        Assert.Null(GenerationRulesResolver.Default.Resolve(PokemonGeneration.Gen6));
     }
 }
