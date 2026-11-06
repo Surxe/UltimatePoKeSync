@@ -14,14 +14,17 @@ public static class PKHeXSources
 {
     public static IMoveLearnSource Learnsets { get; } = new CompositeMoveLearnSource(
         PKHeXGen3MoveLearnSource.Instance,
+        PKHeXGen4MoveLearnSource.Instance,
         PKHeXGen5MoveLearnSource.Instance);
 
     public static IEvolutionSource Evolutions { get; } = new CompositeEvolutionSource(
         PKHeXGen3EvolutionSource.Instance,
+        PKHeXGen4EvolutionSource.Instance,
         PKHeXGen5EvolutionSource.Instance);
 
     public static ISpeciesBaseStatsSource BaseStats { get; } = new CompositeSpeciesBaseStatsSource(
         PKHeXSpeciesBaseStatsSource.Gen3,
+        PKHeXSpeciesBaseStatsSource.Gen4,
         PKHeXSpeciesBaseStatsSource.Gen5);
 
     /// <summary>

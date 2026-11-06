@@ -18,6 +18,15 @@ because the base file holds the current generation's numbers. See D-041.
 - Files: `data/moves.ts`, `data/mods/gen{8,7,6,5}/moves.ts`
 - Importer: `tools/import-showdown-gen5-data.mjs`
 
+## Pokémon Showdown Gen 4 move metadata
+
+The same pinned commit and the same importer, run with `--generation=4`, which applies the
+`gen4` override last. No Gen 4 Random Battle sets are bundled. See D-070.
+
+- Files: `data/moves.ts`, `data/mods/gen{8,7,6,5,4}/moves.ts`
+- Importer: `tools/import-showdown-gen5-data.mjs --generation=4`
+- Retrieved: 2026-11-06
+
 ## Pokémon Showdown Gen 5 Random Battle sets
 
 The same pinned commit again, and the same standing as the Gen 3 sets: expert-authored role

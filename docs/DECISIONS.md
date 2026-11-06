@@ -2622,3 +2622,316 @@ to, is a separate matter.
 desktop launcher or a Finder double-click far more often than from a shell, and an argument
 does not survive those), and a field in the settings file (rejected: it would persist a
 contributor's port into a player's next run).
+
+## D-067. SoulSilver, read through a pointer that has to be followed
+
+**Status:** Accepted · 2026-11-06
+
+The first Gen 4 cartridge read live: English SoulSilver, `POKEMON SS` / `IPGE`, in melonDS 1.1
+(the Flathub build) on Debian Linux, through the ARM7 stub on port 3334. No code in the app
+read it before this entry; it records the measurement the Gen 4 port is built on, so the port
+starts from evidence rather than from a published address.
+
+**Found the way D-040 found Black.** 4 MB of main RAM dumped through the stub, a `PK4` decoder
+slid across every four-byte offset, and whatever passed the checksum kept. The decoder was
+tested first by hiding a synthetic encrypted party in random bytes and requiring it to be
+found, for the reason D-040 gives. 89 records passed. Three runs of six were complete parties
+behind a header of the same shape as Gen 5, capacity 6 and a count, followed by six slots of
+`PK4`'s 236-byte party form:
+
+```
+head + 0   capacity, always 6
+head + 4   how many are carried
+head + 8   slot 0, then 236 bytes each
+```
+
+The rest were PC boxes, in the 136-byte stored form, whose battle stats are not stored and
+therefore decode as noise.
+
+**One party is live, two are ghosts.** The player confirmed the party from the in-game screen:
+Dragonite Lv.58 at 143/189 HP, Feraligatr Lv.52, Crobat Lv.44, Lugia Lv.46, Raikou Lv.44,
+Sandshrew Lv.15, all nicknamed. Three copies decoded:
+
+| Head | Contents | Pointed at by |
+| --- | --- | --- |
+| `0x0227C2E0` | the party on screen | `0x022A6F34` directly, and the save block route below |
+| `0x02376868` | identical to it | nothing |
+| `0x02399888` | stale: Dragonite still Lv.57 at full HP | nothing |
+
+The stale copy is the case D-019 and D-040 warn about in a new form: a complete,
+checksum-valid party that was true once. Only the copy something points to is read.
+
+**The route is a static pointer and an offset.** The word at `0x0211186C`, inside the game's own
+static data rather than its heap, points at the general save block, and the party head sits
+`+0xD080` past it. It was cross-checked two ways that agree: the scan above found the head
+independently, and "the block `0x0211186C` points at, plus `0xD088`" is the route the
+community already uses for the first slot of US HeartGold/SoulSilver. A second, heap-resident
+word at `0x022A6F34` also points at the head directly; it is not used, because the static pointer is the one that does not
+itself move.
+
+**Following it is required, not a courtesy.** D-040 followed Black's pointer although the party
+never moved across restarts. SoulSilver's does: after a soft reset and reloading the same save
+the head was at `0x0227C2CC`, 20 bytes lower, and the pointer led there with every slot
+identical (same PIDs, levels, HP and nicknames). A third boot put it at `0x0227C304`. A
+hardcoded head would have been wrong after the first reset.
+
+**The save is in memory before the title screen.** The party reads correctly while the intro is
+still playing, before Continue is chosen: the game loads its save at boot. The provider can
+therefore show a team earlier than a player might expect, and that is correct rather than
+stale, because it is the party the game is about to resume.
+
+**The bytes are the save's own.** The party decoded from RAM with PKHeX's `PK4` was compared
+with the party PKHeX reads out of the same cartridge's `.sav` file: PID, species, experience,
+nature, ability, held item, IVs, EVs, moves, PP, HP and nickname agree for all six. `PK4` takes
+the 236 bytes exactly as they sit in RAM, as `PK5` does in Gen 5.
+
+**It tracks the game.** Swapping the first and third party members in the menu was reflected on
+the next read, at the same head: the game rewrites the slots in place.
+
+**During a battle the party stands still.** Read in the middle of a wild battle, the party
+kept the HP of the moment the battle began: a Crobat visibly hurt on screen still read
+146/146. Gen 4 fights on a copy of its own and writes the result back when the battle ends.
+After that battle, with the game saved and reloaded, the same party read Crobat at 78/149 and
+Raikou at 50/134, with the PP they had spent and the level Crobat had gained. So the
+dashboard is right between battles and a battle behind during one: HP, PP and status there
+are the ones the Pokémon went in with. Nothing in the provider can change that without
+reading the battle structures as well, which is a separate map and a separate decision.
+
+**The cost was higher than D-039 measured, and D-065 is why.** Polling as the provider does,
+pointer then party once a second, took a median of 326 ms on Linux and let the game swing
+between 40 and 60 FPS. That turned out to be a delayed acknowledgement rather than anything
+about Gen 4 or the stub, and with D-065's fix the same poll takes about 106 ms with the game
+held at 60.
+
+**What is not known.** One cartridge, one language, one emulator build. As D-035 and D-061
+established, nothing here is extrapolated to HeartGold, to Diamond, Pearl or Platinum, or to
+another language: `0x0211186C` and `+0xD080` are a measurement of `IPGE` and of nothing else.
+The offset in particular is a property of this game's save layout and could differ in a
+localisation even where the pointer does not.
+
+**What a port needs.** `Gen5MemoryMap` assumes a pointer to the head and a 220-byte slot; Gen 4
+needs a pointer plus an offset and a 236-byte slot. Then a `PK4` parser, Gen 4 rules and move
+data, and HGSS learnsets from PKHeX, which ships them. Those follow as their own entries.
+
+**Alternatives considered:** hardcode the head (rejected: measured to move after a reset), use
+the heap-resident pointer at `0x022A6F34` (rejected: it lives in memory that is itself
+allocated at run time), and take the community address without measuring (rejected for the
+reasons of D-040; here it was used as a cross-check, and it agreed).
+
+## D-068. Gen 4 gets a sibling memory map, not a share of Gen 5's
+
+**Status:** Accepted · 2026-11-06
+
+The provider can now read SoulSilver's party. `Gen4MemoryMap` sits beside `Gen5MemoryMap`
+rather than inside it, and the provider asks each in turn for three things: the address of
+the word to follow, how far past its target the party head is, and how big a slot is. For
+Gen 5 that is the party pointer, zero and 220 bytes; for SoulSilver it is the save block
+pointer, `0xD080` and 236 (D-067).
+
+**The header now says which generation a DS game is.** `ReadIdentity` labelled every DS
+cartridge Gen 5, which was true while Gen 5 was the only thing it could read. Diamond, Pearl,
+Platinum, HeartGold and SoulSilver are recognised by code and labelled Gen 4; everything
+else keeps the label it had. An unmapped Gen 4 cartridge is still refused, so HeartGold
+gets no party even though it is laid out by the same engine, for the reason D-035 gives.
+
+**Tested without a real capture.** `Gen4Ram` lays a synthetic party out at the measured
+addresses, with a marker in the first and in the very last byte of the six slots, so a read
+one slot size short is caught. The two save block addresses measured a boot apart are both
+tested, because finding the party at both is exactly what a hardcoded head could not do. No
+real save is committed: the bytes say nothing about the player whose cartridge was
+measured.
+
+**Alternatives considered:** one generalised map with an offset and a slot size for every
+entry (rejected for now: it rewrites the verified Gen 5 table to add two fields that are zero
+and 220 for every row, and the shape is easy to fold together later if more generations
+arrive), and keying the provider on `PokemonGeneration` instead of on the code (rejected for
+the reason of D-043: a game code, not a generation, is what identifies an address).
+
+## D-069. A Gen 4 parser, tested on parties nobody owns
+
+**Status:** Accepted · 2026-11-06
+
+`Gen4PartyParser` turns SoulSilver's party bytes into the domain model, and the resolver
+now offers it for HeartGold and SoulSilver. It is a sibling of `Gen5PartyParser` and
+deliberately the same shape, with `PK4` for `PK5`, the HeartGold/SoulSilver personal table,
+Gen 4's move tables for PP and type, and a species ceiling of 493. Every refusal is kept:
+slots past the declared count are never read (D-019), a slot whose checksum fails is
+rejected rather than repaired (D-008), and a species out of range is rejected.
+
+**Copied rather than generalised.** The two parsers differ in five constants and one type,
+and a parser generic over PKHeX's `PKM` would remove most of the copy. It was not done here:
+it would rewrite a Gen 5 parser that has been verified against six cartridges in order to
+add a seventh, and the shared shape is as easy to extract later as now. Platinum, Diamond
+and Pearl would be the moment, since they would make a third copy.
+
+**Species names are in capitals,** "DRAGONITE" rather than "Dragonite". That is the name the
+Gen 4 game itself prints, PKHeX returns it for generation 4 exactly as it returns
+"TREECKO" for Gen 3, and the Gen 3 parser already shows it that way.
+
+**The fixtures are synthetic, and that is a change from D-040.** The Gen 3 and Gen 5 parser
+tests replay real RAM captured from a running cartridge. The Gen 4 tests build their
+parties with PKHeX and encrypt them the way the game does, because a real capture carries
+the player's trainer name, trainer ID and nicknames, and the cartridge this was measured on
+belongs to a contributor who preferred not to commit them. What a real capture proves is
+that the parser agrees with a game that was running, and that was established a different
+way: D-067 compared the party `PK4` decodes from live RAM with the party PKHeX reads from
+the same cartridge's save file, and every field agreed. The synthetic parties are therefore
+the same form of bytes the parser meets in the game, without anyone's save in the
+repository.
+
+**Alternatives considered:** commit the capture with the trainer name and ID overwritten
+(rejected: it alters bytes under a checksum the test is meant to check, and the result is no
+longer a capture anyway), and a generic DS parser (deferred, as above).
+
+## D-070. Gen 4 rules: Gen 5's shape, Gen 4's numbers, and two abilities that only redirect
+
+**Status:** Accepted · 2026-11-06
+
+SoulSilver gets battle rules, so type matchups, offensive coverage and the team score work
+for a Gen 4 party. `Gen4Rules` is a sibling of `Gen5Rules` for the reason D-069 gives for
+the parser, and it differs in three places.
+
+**The move table is Gen 4's.** 467 moves, from the same Showdown revision the other
+generations are pinned to, reconstructed by applying the `gen4` override after `gen5`. The
+importer gained `--generation=4` rather than being copied: Gen 4 differs from Gen 5 in the
+last move number and one more override, and nothing else. Run without the flag it still
+reproduces the committed Gen 5 files byte for byte, which was checked before the Gen 4 ones
+were generated. Twenty moves come out different from Gen 5, every one a power change Gen 5
+made: Tackle 35, Giga Drain and Drain Punch 60, Feint 50. No category differs, because the
+physical/special split is itself a Gen 4 change and Gen 5 inherited it unchanged.
+
+**Lightning Rod and Storm Drain are not immunities.** In Gen 4 they draw a move to their
+holder, who still takes it; Gen 5 is where they started to absorb it. Treating them as
+immunities, as a copy of `Gen5Rules` would have, would hide a real weakness in exactly the
+team that relies on them. Sap Sipper does not exist yet. A test checks both generations
+side by side, so the difference cannot be lost in either direction.
+
+**The type chart and natures are their own files** with the same contents as Gen 5's,
+because `TableTypeChart` and `NatureTable` require each generation to declare its own data
+rather than borrow another's, and a test pins that the two charts agree.
+
+**Recommendations are not part of this.** There are no Gen 4 Random Battle sets, so the
+window keeps saying recommendations are unavailable for this game while matchups and the
+team score are shown, which is the behaviour D-043 built for a generation without them. The
+Gen 4 move catalog exists anyway, because the learnsets need it to name a move.
+
+**Three tests changed their example.** They used Gen 4 to stand for "a generation with no
+rules", which is no longer true. They now use Gen 6, and check the same thing.
+
+**Alternatives considered:** reuse `Gen5Rules` for Gen 4 (rejected: wrong for Lightning Rod,
+Storm Drain and twenty move powers), and a copy of the importer per generation (rejected: two
+scripts for one difference in two constants).
+
+## D-071. HeartGold and SoulSilver learnsets, evolutions and base stats, from PKHeX
+
+**Status:** Accepted · 2026-11-06
+
+The "coming up" timeline, the evolution line and stat projection now work for a SoulSilver
+party. Each comes from PKHeX the way the Gen 3 and Gen 5 ones do, as one more line in
+`PKHeXSources`, which is the extension point D-043 built: `PKHeXGen4MoveLearnSource` over
+`LearnSource4HGSS`, `PKHeXGen4EvolutionSource` over PKHeX's Gen 4 table, and the
+HeartGold/SoulSilver personal table for base stats.
+
+**Johto only.** The learn source answers HeartGold and SoulSilver and refuses Diamond, Pearl
+and Platinum, which teach at levels of their own, for the reason of D-027. The evolution
+source is limited the same way for a different reason: PKHeX's Gen 4 table is shared, but
+four of its evolutions need a magnetic field, a mossy rock or an icy rock, all of which are
+in Sinnoh. Answering for Johto only lets the card say plainly that Magnezone, Probopass,
+Leafeon and Glaceon do not happen in these games, instead of promising them.
+
+**Gen 4's new triggers are described rather than left to the fallback.** Holding an item by
+day or by night (Gligar, Sneasel, Happiny), knowing a move (Yanmega, Ambipom, Mamoswine and
+others), and a teammate in the party (Mantyke) each get a sentence naming the item, move or
+species. A test walks all 493 species and fails if any step still reads "under a condition
+this app does not know".
+
+**Checked live.** Through `UPKS_MELONDS_PORT` (D-066), the dashboard against a running
+SoulSilver showed a Dragonite's moves with Gen 4 categories and powers, its matchups and a
+team gap, a team score with its reasons, and Outrage six levels away.
+
+**Alternatives considered:** answer for every Gen 4 code from the shared tables (rejected:
+Platinum's learnsets differ, and the location evolutions would be promised to players who
+cannot reach them), and generalise the Gen 5 sources (deferred, for the reason of D-069).
+
+## D-072. A slot is read in one request, because the game rewrites it between frames
+
+**Status:** Accepted · 2026-11-06
+
+Every few seconds a SoulSilver party member came back as a level 159 with 30921/8595 HP
+and asleep, then as itself again. The cause is in the provider, and it applies to Gen 5 as
+much as to Gen 4.
+
+The party used to be read as one block, which the reader split into requests of 256 bytes,
+and the stub answers one request a frame (D-039). The boundaries of those requests fall
+inside slots: in Gen 4 the second slot starts at byte 244 of the block, so its personality
+value and checksum came from one request and the rest of it from the next, a frame later.
+While the player walks, the game rewrites party records every step, re-encrypting each with
+a new checksum. A record joined across that boundary is a record the game never held: it
+fails its checksum, so the slot is rejected and the Pokémon vanishes, or its battle stats
+decrypt with the wrong key and it turns into the level 159 above.
+
+Measured on a headless SoulSilver while walking back and forth: reading the party the old
+way, the slot straddling the first boundary was bad in 36 of 36 reads, and re-reading the
+same slot alone straight afterwards was clean every time. Read with one request per slot,
+it was clean in 36 of 36. Halting the CPU around the old read did not help, because the
+seam is between the provider's requests, and it froze the game for a third of a second.
+
+So the provider now reads the eight-byte party header, then each slot in a request of its
+own. A slot is 236 bytes in Gen 4 and 220 in Gen 5, both inside the stub's 256-byte limit,
+so a record is always taken from a single frame. It costs one request more than before.
+A test asserts, for a Gen 4 and a Gen 5 cartridge, that no read request covers parts of two
+slots; against the old provider it fails for both.
+
+This is not the whole story for Gen 4: with every slot read whole, a record still
+occasionally comes back with its battle stats in the clear, which is the game's own doing
+and the subject of the next entry.
+
+**Alternatives considered:** halt the CPU for the duration of a poll (rejected: it did not
+remove the problem and paused the game for about 320 ms a poll), and read the party twice
+and keep only what agrees (rejected: it doubles the cost, and while the player walks, two
+consecutive reads straddling a rewrite agree on nothing).
+
+## D-073. A Gen 4 record is shown only when its battle stats agree with the rest of it
+
+**Status:** Accepted · 2026-11-06
+
+With every slot read whole (D-072), a SoulSilver record still came back wrong now and then
+while the player walked: battle stats in the clear and decrypted a second time into nonsense,
+or half re-encrypted so that the level and HP looked right while the maximum HP or the status
+did not. The game works on a record in place, and the stub can answer while it is part way
+through. The bits that the decompilation names as the record's "decrypted" flags stayed zero
+in every one of these reads, so there is nothing in the record that says which state it is
+in.
+
+What the record does carry is redundancy. Its stored part fixes the species, the experience
+and therefore the level, the IVs, the effort values and the nature, and from those the battle
+stats follow. So the parser now checks the battle stats against that before showing them:
+
+- the level they carry is the one the experience gives;
+- HP is not above its maximum, and the status is one the game can hold (one condition, or a
+  sleep counter, and nothing above the low byte);
+- each of the six stats lies between its value with no effort values and with 255, for that
+  species, level, IVs and nature.
+
+A range rather than an exact value, because Gen 4 recalculates stats only on level up: effort
+values earned since are in the stored part and not yet in the stats. Checking against the
+current effort values exactly rejected a perfectly healthy Crobat on every read.
+
+If the stats fail, the parser tries them as they stand, because the game sometimes leaves the
+whole block in the clear and then they are simply right. If that fails too, the slot is
+rejected, and `PartyTracker` already keeps the last good party when a snapshot has a rejected
+slot, so the player sees the Pokémon as it was a moment ago rather than as noise.
+
+Measured on a headless SoulSilver while walking, through the provider and parser the app
+uses: 83 snapshots, every reading that was shown matched the game, and the 36 rejected ones
+were all the slot the game was busy with. Before this entry and D-072, the same walk showed a
+Feraligatr at 171/8598 HP and asleep.
+
+**What is left.** The tracker holds the last good party for five snapshots in a row and then
+shows what it has. At the rate measured here a run of five is uncommon but possible, and the
+Pokémon then drops out of the list for a moment. It is never shown with wrong numbers.
+
+**Alternatives considered:** trust the record's flag bits (rejected: they were zero in every
+bad read), check the stats against the current effort values exactly (rejected: wrong for
+any Pokémon that has earned effort since its last level), and halt the CPU for each poll
+(rejected in D-072).

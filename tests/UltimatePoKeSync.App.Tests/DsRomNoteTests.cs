@@ -19,6 +19,17 @@ public sealed class DsRomNoteTests
             name => Assert.Contains(name, SetupGuide.DsRomNote, StringComparison.Ordinal));
     }
 
+    /// <summary>The Gen 4 cartridge is named alongside the Gen 5 ones. See D-067.</summary>
+    [Fact]
+    public void TheMeasuredGen4CartridgeIsNamedToo()
+    {
+        Assert.NotEmpty(Gen4MemoryMap.Mapped);
+        Assert.All(
+            Gen4MemoryMap.Mapped,
+            name => Assert.Contains(name, SetupGuide.DsRomNote, StringComparison.Ordinal));
+        Assert.DoesNotContain("HeartGold", SetupGuide.DsRomNote, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// And nothing unmeasured is named. A note that lists a cartridge the app cannot read
     /// sends somebody to load a game that will produce silence.

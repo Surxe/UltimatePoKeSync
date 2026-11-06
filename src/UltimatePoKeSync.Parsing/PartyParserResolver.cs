@@ -18,7 +18,7 @@ public sealed class PartyParserResolver : IPartyParserResolver
 
     /// <summary>The set of parsers currently implemented.</summary>
     public static PartyParserResolver CreateDefault() =>
-        new([new Gen3PartyParser(), new Gen5PartyParser()]);
+        new([new Gen3PartyParser(), new Gen4PartyParser(), new Gen5PartyParser()]);
 
     public IPartyParser? Resolve(GameIdentity game)
     {

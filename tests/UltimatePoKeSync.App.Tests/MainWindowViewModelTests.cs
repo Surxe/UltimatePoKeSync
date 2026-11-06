@@ -340,6 +340,21 @@ public sealed class MainWindowViewModelTests
         Assert.True(viewModel.Slots[0].HasProjectedStats);
     }
 
+    /// <summary>The bridge reports the bytes a Gen 4 party really takes: six slots of 236.</summary>
+    [Fact]
+    public void BridgePayloadCountsGen4Slots()
+    {
+        (MainWindowViewModel viewModel, FakeSource source) = Create();
+        PartySnapshot party = LoadRealParty();
+
+        source.RaiseParty(party with
+        {
+            Game = party.Game with { GameCode = "IPGE", Generation = PokemonGeneration.Gen4 },
+        });
+
+        Assert.StartsWith("1416 · signature ", viewModel.BridgePartyPayload, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AGameTheAnalysisCannotServe_StillShowsTheParty()
     {
@@ -348,7 +363,7 @@ public sealed class MainWindowViewModelTests
 
         source.RaiseParty(party with
         {
-            Game = party.Game with { GameCode = "AXVJ", Generation = PokemonGeneration.Gen4 },
+            Game = party.Game with { GameCode = "AXVJ", Generation = PokemonGeneration.Gen6 },
         });
 
         Assert.True(viewModel.HasTeam);

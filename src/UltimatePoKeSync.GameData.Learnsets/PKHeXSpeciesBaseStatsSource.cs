@@ -41,6 +41,10 @@ public sealed class PKHeXSpeciesBaseStatsSource : ISpeciesBaseStatsSource
     public static PKHeXSpeciesBaseStatsSource Gen3 { get; } =
         new(PokemonGeneration.Gen3, PersonalTable.E, 386);
 
+    /// <summary>Gen 4: 493 species, from the HeartGold/SoulSilver table. See D-071.</summary>
+    public static PKHeXSpeciesBaseStatsSource Gen4 { get; } =
+        new(PokemonGeneration.Gen4, PersonalTable.HGSS, 493);
+
     /// <summary>Gen 5: 649 species, and BW and B2W2 agree about all of them.</summary>
     public static PKHeXSpeciesBaseStatsSource Gen5 { get; } =
         new(PokemonGeneration.Gen5, PersonalTable.BW, 649);
