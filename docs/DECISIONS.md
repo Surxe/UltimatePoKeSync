@@ -2622,3 +2622,89 @@ to, is a separate matter.
 desktop launcher or a Finder double-click far more often than from a shell, and an argument
 does not survive those), and a field in the settings file (rejected: it would persist a
 contributor's port into a player's next run).
+
+## D-067. SoulSilver, read through a pointer that has to be followed
+
+**Status:** Accepted · 2026-11-06
+
+The first Gen 4 cartridge read live: English SoulSilver, `POKEMON SS` / `IPGE`, in melonDS 1.1
+(the Flathub build) on Debian Linux, through the ARM7 stub on port 3334. No code in the app
+read it before this entry; it records the measurement the Gen 4 port is built on, so the port
+starts from evidence rather than from a published address.
+
+**Found the way D-040 found Black.** 4 MB of main RAM dumped through the stub, a `PK4` decoder
+slid across every four-byte offset, and whatever passed the checksum kept. The decoder was
+tested first by hiding a synthetic encrypted party in random bytes and requiring it to be
+found, for the reason D-040 gives. 89 records passed. Three runs of six were complete parties
+behind a header of the same shape as Gen 5, capacity 6 and a count, followed by six slots of
+`PK4`'s 236-byte party form:
+
+```
+head + 0   capacity, always 6
+head + 4   how many are carried
+head + 8   slot 0, then 236 bytes each
+```
+
+The rest were PC boxes, in the 136-byte stored form, whose battle stats are not stored and
+therefore decode as noise.
+
+**One party is live, two are ghosts.** The player confirmed the party from the in-game screen:
+Dragonite Lv.58 at 143/189 HP, Feraligatr Lv.52, Crobat Lv.44, Lugia Lv.46, Raikou Lv.44,
+Sandshrew Lv.15, all nicknamed. Three copies decoded:
+
+| Head | Contents | Pointed at by |
+| --- | --- | --- |
+| `0x0227C2E0` | the party on screen | `0x022A6F34` directly, and the save block route below |
+| `0x02376868` | identical to it | nothing |
+| `0x02399888` | stale: Dragonite still Lv.57 at full HP | nothing |
+
+The stale copy is the case D-019 and D-040 warn about in a new form: a complete,
+checksum-valid party that was true once. Only the copy something points to is read.
+
+**The route is a static pointer and an offset.** The word at `0x0211186C`, inside the game's own
+static data rather than its heap, points at the general save block, and the party head sits
+`+0xD080` past it. It was cross-checked two ways that agree: the scan above found the head
+independently, and "the block `0x0211186C` points at, plus `0xD088`" is the route the
+community already uses for the first slot of US HeartGold/SoulSilver. A second, heap-resident
+word at `0x022A6F34` also points at the head directly; it is not used, because the static pointer is the one that does not
+itself move.
+
+**Following it is required, not a courtesy.** D-040 followed Black's pointer although the party
+never moved across restarts. SoulSilver's does: after a soft reset and reloading the same save
+the head was at `0x0227C2CC`, 20 bytes lower, and the pointer led there with every slot
+identical (same PIDs, levels, HP and nicknames). A third boot put it at `0x0227C304`. A
+hardcoded head would have been wrong after the first reset.
+
+**The save is in memory before the title screen.** The party reads correctly while the intro is
+still playing, before Continue is chosen: the game loads its save at boot. The provider can
+therefore show a team earlier than a player might expect, and that is correct rather than
+stale, because it is the party the game is about to resume.
+
+**The bytes are the save's own.** The party decoded from RAM with PKHeX's `PK4` was compared
+with the party PKHeX reads out of the same cartridge's `.sav` file: PID, species, experience,
+nature, ability, held item, IVs, EVs, moves, PP, HP and nickname agree for all six. `PK4` takes
+the 236 bytes exactly as they sit in RAM, as `PK5` does in Gen 5.
+
+**It tracks the game.** Swapping the first and third party members in the menu was reflected on
+the next read, at the same head: the game rewrites the slots in place.
+
+**The cost was higher than D-039 measured, and D-065 is why.** Polling as the provider does,
+pointer then party once a second, took a median of 326 ms on Linux and let the game swing
+between 40 and 60 FPS. That turned out to be a delayed acknowledgement rather than anything
+about Gen 4 or the stub, and with D-065's fix the same poll takes about 106 ms with the game
+held at 60.
+
+**What is not known.** One cartridge, one language, one emulator build. As D-035 and D-061
+established, nothing here is extrapolated to HeartGold, to Diamond, Pearl or Platinum, or to
+another language: `0x0211186C` and `+0xD080` are a measurement of `IPGE` and of nothing else.
+The offset in particular is a property of this game's save layout and could differ in a
+localisation even where the pointer does not.
+
+**What a port needs.** `Gen5MemoryMap` assumes a pointer to the head and a 220-byte slot; Gen 4
+needs a pointer plus an offset and a 236-byte slot. Then a `PK4` parser, Gen 4 rules and move
+data, and HGSS learnsets from PKHeX, which ships them. Those follow as their own entries.
+
+**Alternatives considered:** hardcode the head (rejected: measured to move after a reset), use
+the heap-resident pointer at `0x022A6F34` (rejected: it lives in memory that is itself
+allocated at run time), and take the community address without measuring (rejected for the
+reasons of D-040; here it was used as a cross-check, and it agreed).
