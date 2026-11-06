@@ -148,11 +148,11 @@ public sealed class MelonDsProviderTests
         Assert.Single(seen);
     }
 
-    private static async Task<RawPartySnapshot> FirstSnapshot(MelonDsProvider provider) =>
+    internal static async Task<RawPartySnapshot> FirstSnapshot(MelonDsProvider provider) =>
         await FirstSnapshotOrNull(provider, TimeSpan.FromSeconds(5))
         ?? throw new InvalidOperationException("no snapshot arrived");
 
-    private static async Task<RawPartySnapshot?> FirstSnapshotOrNull(
+    internal static async Task<RawPartySnapshot?> FirstSnapshotOrNull(
         MelonDsProvider provider,
         TimeSpan patience)
     {

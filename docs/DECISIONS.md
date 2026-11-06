@@ -2708,3 +2708,32 @@ data, and HGSS learnsets from PKHeX, which ships them. Those follow as their own
 the heap-resident pointer at `0x022A6F34` (rejected: it lives in memory that is itself
 allocated at run time), and take the community address without measuring (rejected for the
 reasons of D-040; here it was used as a cross-check, and it agreed).
+
+## D-068. Gen 4 gets a sibling memory map, not a share of Gen 5's
+
+**Status:** Accepted · 2026-11-06
+
+The provider can now read SoulSilver's party. `Gen4MemoryMap` sits beside `Gen5MemoryMap`
+rather than inside it, and the provider asks each in turn for three things: the address of
+the word to follow, how far past its target the party head is, and how big a slot is. For
+Gen 5 that is the party pointer, zero and 220 bytes; for SoulSilver it is the save block
+pointer, `0xD080` and 236 (D-067).
+
+**The header now says which generation a DS game is.** `ReadIdentity` labelled every DS
+cartridge Gen 5, which was true while Gen 5 was the only thing it could read. Diamond, Pearl,
+Platinum, HeartGold and SoulSilver are recognised by code and labelled Gen 4; everything
+else keeps the label it had. An unmapped Gen 4 cartridge is still refused, so HeartGold
+gets no party even though it is laid out by the same engine, for the reason D-035 gives.
+
+**Tested without a real capture.** `Gen4Ram` lays a synthetic party out at the measured
+addresses, with a marker in the first and in the very last byte of the six slots, so a read
+one slot size short is caught. The two save block addresses measured a boot apart are both
+tested, because finding the party at both is exactly what a hardcoded head could not do. No
+real save is committed: the bytes say nothing about the player whose cartridge was
+measured.
+
+**Alternatives considered:** one generalised map with an offset and a slot size for every
+entry (rejected for now: it rewrites the verified Gen 5 table to add two fields that are zero
+and 220 for every row, and the shape is easy to fold together later if more generations
+arrive), and keying the provider on `PokemonGeneration` instead of on the code (rejected for
+the reason of D-043: a game code, not a generation, is what identifies an address).

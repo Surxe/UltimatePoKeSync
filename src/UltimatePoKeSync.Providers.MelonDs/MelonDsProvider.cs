@@ -4,7 +4,7 @@ using UltimatePoKeSync.Contracts;
 namespace UltimatePoKeSync.Providers.MelonDs;
 
 /// <summary>
-/// Streams party snapshots out of melonDS, for Gen 5. See D-039 and D-040.
+/// Streams party snapshots out of melonDS, for Gen 4 and 5. See D-039, D-040 and D-067.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -122,13 +122,13 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
             return null;
         }
 
-        if (Gen5MemoryMap.For(game.GameCode) is not Gen5MemoryMap map)
+        if (Locate(game.GameCode) is not (uint pointerAddress, uint offset, int slotSize))
         {
             return null;
         }
 
         byte[]? pointer = await _reader
-            .ReadMemoryAsync(map.PartyPointer, 4, cancellationToken)
+            .ReadMemoryAsync(pointerAddress, 4, cancellationToken)
             .ConfigureAwait(false);
 
         if (pointer is null)
@@ -136,16 +136,16 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
             return null;
         }
 
-        uint head = BitConverter.ToUInt32(pointer);
-        if (head is < 0x02000000 or >= 0x02400000)
+        uint target = BitConverter.ToUInt32(pointer);
+        uint head = target + offset;
+        if (target is < 0x02000000 or >= 0x02400000 || head is < 0x02000000 or >= 0x02400000)
         {
             // The pointer does not point into main RAM, so the game has not built its save
             // blocks yet: it is still on the title screen, or mid-load.
             return null;
         }
 
-        int length = Gen5MemoryMap.FirstSlotOffset
-            + (Gen5MemoryMap.SlotSize * Gen5MemoryMap.SlotCapacity);
+        int length = Gen5MemoryMap.FirstSlotOffset + (slotSize * Gen5MemoryMap.SlotCapacity);
 
         byte[]? block = await _reader
             .ReadMemoryAsync(head, length, cancellationToken)
@@ -168,9 +168,29 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
             game,
             count,
             block.AsMemory(Gen5MemoryMap.FirstSlotOffset),
-            Gen5MemoryMap.SlotSize,
+            slotSize,
             DateTimeOffset.UtcNow,
             ++_sequence);
+    }
+
+    /// <summary>
+    /// Where a mapped cartridge keeps the word to follow, how far past its target the party
+    /// head sits, and how big a slot is. Both generations put a capacity and a count in front
+    /// of six slots, so only these three differ. See D-067.
+    /// </summary>
+    private static (uint Pointer, uint Offset, int SlotSize)? Locate(string gameCode)
+    {
+        if (Gen5MemoryMap.For(gameCode) is Gen5MemoryMap gen5)
+        {
+            return (gen5.PartyPointer, 0, Gen5MemoryMap.SlotSize);
+        }
+
+        if (Gen4MemoryMap.For(gameCode) is Gen4MemoryMap gen4)
+        {
+            return (gen4.SaveBlockPointer, gen4.PartyOffset, Gen4MemoryMap.SlotSize);
+        }
+
+        return null;
     }
 
     private void SetState(EmulatorConnectionState state)

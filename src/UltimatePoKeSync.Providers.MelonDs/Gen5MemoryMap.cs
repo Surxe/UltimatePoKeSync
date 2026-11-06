@@ -121,6 +121,12 @@ public sealed record Gen5MemoryMap(string GameCode, string Name, uint PartyPoint
             return null;
         }
 
-        return new GameIdentity(code, title, header[0x1E], PokemonGeneration.Gen5);
+        // The header is where every DS game says who it is, so Gen 4 is told apart here too.
+        // Anything else keeps the Gen 5 label it always had. See D-067.
+        PokemonGeneration generation = Gen4MemoryMap.IsGen4(code)
+            ? PokemonGeneration.Gen4
+            : PokemonGeneration.Gen5;
+
+        return new GameIdentity(code, title, header[0x1E], generation);
     }
 }
