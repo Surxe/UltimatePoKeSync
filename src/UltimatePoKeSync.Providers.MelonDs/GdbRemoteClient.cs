@@ -31,6 +31,11 @@ internal sealed class GdbRemoteClient : IAsyncDisposable
 
     private static readonly byte[] Acknowledgement = "+"u8.ToArray();
 
+    // Linux's TCP_QUICKACK, from <netinet/tcp.h>. .NET has no named option for it.
+    private const int IpProtocolTcp = 6;
+    private const int TcpQuickAck = 12;
+    private static readonly byte[] On = BitConverter.GetBytes(1);
+
     private readonly SemaphoreSlim _exchange = new(1, 1);
     private readonly Socket _socket;
     private readonly byte[] _receiveBuffer = new byte[4096];
@@ -179,6 +184,8 @@ internal sealed class GdbRemoteClient : IAsyncDisposable
 
     private async Task FillAsync(CancellationToken cancellationToken)
     {
+        AcknowledgeImmediately();
+
         int read = await _socket
             .ReceiveAsync(_receiveBuffer, cancellationToken)
             .ConfigureAwait(false);
@@ -189,6 +196,35 @@ internal sealed class GdbRemoteClient : IAsyncDisposable
         }
 
         _pending.Append(Encoding.ASCII.GetString(_receiveBuffer, 0, read));
+    }
+
+    /// <summary>
+    /// Asks Linux to acknowledge what arrives next at once rather than delay it. See D-065.
+    /// </summary>
+    /// <remarks>
+    /// melonDS writes an acknowledgement and then its reply, with Nagle's algorithm on, so the
+    /// reply is held back until we acknowledge the first write. Linux delays acknowledgements
+    /// by up to 40 ms once traffic looks interactive, which is exactly what a stream of reads
+    /// looks like: every read then cost about 44 ms where one frame, 16.7 ms, is the floor,
+    /// and the game dropped to 22 FPS while being read. The kernel clears the flag after it
+    /// acts on it, so it is set again before every receive. macOS and Windows have no such
+    /// option and were never seen to stall this way.
+    /// </remarks>
+    private void AcknowledgeImmediately()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        try
+        {
+            _socket.SetRawSocketOption(IpProtocolTcp, TcpQuickAck, On);
+        }
+        catch (SocketException)
+        {
+            // Slower, not broken: reads still work, at the old cost.
+        }
     }
 
     /// <summary>

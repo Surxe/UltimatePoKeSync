@@ -119,6 +119,42 @@ public sealed class GdbRemoteClientTests
         Assert.Equal("D", stub.Commands[^1]);
     }
 
+    /// <summary>
+    /// melonDS writes its acknowledgement and its reply separately, with Nagle's algorithm on,
+    /// so the reply waits until the client acknowledges the first write. Linux delays that
+    /// acknowledgement by up to 40 ms unless asked not to, and against a real SoulSilver that
+    /// made every read cost three frames and held the game at 22 FPS. Measured, with the
+    /// fix: 16.8 ms, one frame. See D-065.
+    /// </summary>
+    [Fact]
+    public async Task ReadsDoNotWaitOnADelayedAcknowledgement()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "the delayed acknowledgement is Linux's");
+
+        await using var stub = new FakeGdbStub { ReplyLikeMelonDs = true };
+        await using GdbRemoteClient client = await GdbRemoteClient.ConnectAsync("127.0.0.1", stub.Port, Token);
+
+        // The kernel acknowledges the first few segments of a connection at once and only
+        // starts delaying once the traffic looks interactive, so warm up before timing.
+        for (int i = 0; i < 10; i++)
+        {
+            await client.ReadMemoryAsync(0x02000000, 16, Token);
+        }
+
+        var timings = new List<double>();
+        for (int i = 0; i < 20; i++)
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            await client.ReadMemoryAsync(0x02000000, 16, Token);
+            timings.Add(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+
+        // There is no emulator frame to wait for here, so a read costs well under a
+        // millisecond; a delayed acknowledgement costs tens of them.
+        timings.Sort();
+        Assert.True(timings[timings.Count / 2] < 10, $"median read took {timings[timings.Count / 2]:F1} ms");
+    }
+
     [Fact]
     public async Task AStubThatIsNotThereFailsToConnectRatherThanHanging()
     {

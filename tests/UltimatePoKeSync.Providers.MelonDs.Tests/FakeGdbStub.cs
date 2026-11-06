@@ -50,6 +50,14 @@ internal sealed class FakeGdbStub : IAsyncDisposable
     /// <summary>Set to reply with fewer bytes than were asked for.</summary>
     public bool TruncateReads { get; set; }
 
+    /// <summary>
+    /// Set before connecting to write each acknowledgement and its reply separately, from a
+    /// socket that keeps Nagle's algorithm on, which is what melonDS does. The second write
+    /// then waits for the client to acknowledge the first, and a client that lets the kernel
+    /// delay that acknowledgement pays for it on every read. See D-065.
+    /// </summary>
+    public bool ReplyLikeMelonDs { get; set; }
+
     public byte[] MemoryAt(uint address, int length) =>
         _memory.AsSpan((int)(address - _baseAddress), length).ToArray();
 
@@ -67,6 +75,8 @@ internal sealed class FakeGdbStub : IAsyncDisposable
 
         using (client)
         {
+            client.NoDelay = !ReplyLikeMelonDs;
+
             var buffer = new byte[4096];
             var pending = new StringBuilder();
 
@@ -103,9 +113,20 @@ internal sealed class FakeGdbStub : IAsyncDisposable
                     Commands.Add(payload);
 
                     string? reply = Answer(payload);
-                    if (reply is not null)
+                    if (reply is null)
                     {
-                        await client.SendAsync(Frame(reply), _stopping.Token);
+                        continue;
+                    }
+
+                    byte[] framed = Frame(reply);
+                    if (ReplyLikeMelonDs)
+                    {
+                        await client.SendAsync(framed.AsMemory(0, 1), _stopping.Token);
+                        await client.SendAsync(framed.AsMemory(1), _stopping.Token);
+                    }
+                    else
+                    {
+                        await client.SendAsync(framed, _stopping.Token);
                     }
                 }
             }
