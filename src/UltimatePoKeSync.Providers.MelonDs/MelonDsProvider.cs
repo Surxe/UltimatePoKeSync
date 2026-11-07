@@ -19,13 +19,16 @@ namespace UltimatePoKeSync.Providers.MelonDs;
 /// consumer nothing.
 /// </para>
 /// </remarks>
-public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
+public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader, IBattleReader
 {
     private readonly MelonDsMemoryReader _reader;
     private readonly TimeSpan _interval;
 
     private EmulatorConnectionState _state = EmulatorConnectionState.Idle;
     private ulong _sequence;
+
+    /// <summary>The cartridge the party loop last identified, so a battle read need not ask again.</summary>
+    private volatile GameIdentity? _game;
 
     public MelonDsProvider(
         string host = "127.0.0.1",
@@ -119,8 +122,11 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
 
         if (header is null || Gen5MemoryMap.ReadIdentity(header) is not GameIdentity game)
         {
+            _game = null;
             return null;
         }
+
+        _game = game;
 
         if (Locate(game.GameCode) is not (uint pointerAddress, uint offset, int slotSize))
         {
@@ -214,6 +220,93 @@ public sealed class MelonDsProvider : IEmulatorProvider, IEmulatorMemoryReader
 
         return null;
     }
+
+    /// <summary>
+    /// The battle on the field, for a cartridge with a battle map. See D-076.
+    /// </summary>
+    /// <remarks>
+    /// One 8-byte read outside a battle: the VBlank slot, whose handler says whether a battle is
+    /// running. In one, three more: the battle type and context pointer, then each battler's
+    /// record in a request of its own, so neither is joined across two frames (D-072). Only the
+    /// fields of <see cref="RawBattler"/> leave this method; the rest of each record, the
+    /// opponent's moves and stats among it, is dropped here (D-075).
+    /// </remarks>
+    public async Task<RawBattleSnapshot?> ReadBattleAsync(CancellationToken cancellationToken = default)
+    {
+        if (_game is not GameIdentity game || Gen4BattleMap.For(game.GameCode) is not Gen4BattleMap map)
+        {
+            return null;
+        }
+
+        byte[]? slot = await _reader.ReadMemoryAsync(map.VBlankSlot, 8, cancellationToken).ConfigureAwait(false);
+        if (slot is null)
+        {
+            return null;
+        }
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        uint handler = BitConverter.ToUInt32(slot, 0);
+        uint system = BitConverter.ToUInt32(slot, 4);
+
+        if (handler != map.BattleVBlankHandler)
+        {
+            return new RawBattleSnapshot(game, false, 0, null, null, now);
+        }
+
+        if (!InMainRam(system))
+        {
+            return null;
+        }
+
+        byte[]? head = await _reader
+            .ReadMemoryAsync(system + Gen4BattleMap.BattleTypeOffset, 8, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (head is null)
+        {
+            return null;
+        }
+
+        uint battleType = BitConverter.ToUInt32(head, 0);
+        uint context = BitConverter.ToUInt32(head, 4);
+        if (!InMainRam(context))
+        {
+            return null;
+        }
+
+        uint mons = context + Gen4BattleMap.BattleMonsOffset;
+        RawBattler? player = await ReadBattlerAsync(mons, cancellationToken).ConfigureAwait(false);
+        RawBattler? opponent = await ReadBattlerAsync(mons + Gen4BattleMap.BattleMonSize, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (player is null || opponent is null)
+        {
+            return null;
+        }
+
+        return new RawBattleSnapshot(game, true, battleType, player, opponent, now);
+    }
+
+    private async Task<RawBattler?> ReadBattlerAsync(uint address, CancellationToken cancellationToken)
+    {
+        byte[]? bytes = await _reader
+            .ReadMemoryAsync(address, Gen4BattleMap.BattleMonReadLength, cancellationToken)
+            .ConfigureAwait(false);
+
+        return bytes is null ? null : ToBattler(bytes);
+    }
+
+    /// <summary>The allowed fields of a <c>BattleMon</c>, and nothing else (D-075).</summary>
+    internal static RawBattler ToBattler(ReadOnlySpan<byte> record) => new(
+        SpeciesId: BitConverter.ToUInt16(record[Gen4BattleMap.SpeciesOffset..]),
+        Form: record[Gen4BattleMap.FormOffset] & 0x1F,
+        Level: record[Gen4BattleMap.LevelOffset],
+        CurrentHp: BitConverter.ToInt32(record[Gen4BattleMap.HpOffset..]),
+        MaxHp: (int)Math.Min(BitConverter.ToUInt32(record[Gen4BattleMap.MaxHpOffset..]), int.MaxValue),
+        StatusFlags: BitConverter.ToUInt32(record[Gen4BattleMap.StatusOffset..]),
+        Personality: BitConverter.ToUInt32(record[Gen4BattleMap.PersonalityOffset..]));
+
+    private static bool InMainRam(uint address) => address is >= 0x02000000 and < 0x02400000;
 
     private void SetState(EmulatorConnectionState state)
     {

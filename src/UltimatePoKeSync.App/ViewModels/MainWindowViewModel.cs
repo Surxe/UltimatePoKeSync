@@ -183,6 +183,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IAsyncDispos
 
         _live.StateChanged += (_, state) => _post(() => OnStateChanged(state));
         _live.PartyChanged += (_, party) => _post(() => OnPartyChanged(party));
+        _live.BattleChanged += (_, battle) => _post(() => Battle.UpdateBattle(battle));
 
         CheckForUpdate();
     }
@@ -280,6 +281,11 @@ public sealed partial class MainWindowViewModel : ObservableObject, IAsyncDispos
     public bool IsTeamHintsTab => SelectedTab == DashboardTab.TeamHints;
 
     public bool IsBridgeTab => SelectedTab == DashboardTab.Bridge;
+
+    public bool IsBattleTab => SelectedTab == DashboardTab.Battle;
+
+    /// <summary>The Battle tab. Fed by battle reads and by every party update. See D-077.</summary>
+    public BattleViewModel Battle { get; } = new();
 
     public bool ShowsConnectedEmptyState => IsConnected && !HasTeam && !IsBridgeTab;
 
@@ -553,7 +559,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IAsyncDispos
                  {
                      nameof(IsPokemonTab), nameof(IsStatsTab), nameof(IsBuildTab),
                      nameof(IsLearnsetTab), nameof(IsTeamTab), nameof(IsTeamHintsTab),
-                     nameof(IsBridgeTab),
+                     nameof(IsBridgeTab), nameof(IsBattleTab),
                      nameof(ShowsOldPanels), nameof(ShowsConnectedEmptyState),
                  })
         {
@@ -752,6 +758,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IAsyncDispos
     private void OnPartyChanged(PartySnapshot party)
     {
         _party = party;
+        Battle.UpdateParty(party);
         HasReceivedParty = true;
         GameText = $"{party.Game.Title} [{party.Game.GameCode}]";
         OnPropertyChanged(nameof(IdentityLine));

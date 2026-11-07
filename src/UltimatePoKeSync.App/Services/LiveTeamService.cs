@@ -74,6 +74,8 @@ public sealed class LiveTeamService : ILiveTeamSource
 
     public event EventHandler<PartySnapshot>? PartyChanged;
 
+    public event EventHandler<BattleSnapshot>? BattleChanged;
+
     public MGbaProviderOptions Options { get; }
 
     public int Port => Options.Port;
@@ -107,7 +109,11 @@ public sealed class LiveTeamService : ILiveTeamSource
     }
 
     public void Start() =>
-        _loops ??= Task.WhenAll([.. _watched.Select(RunAsync)]);
+        _loops ??= Task.WhenAll(
+        [
+            .. _watched.Select(RunAsync),
+            .. _watched.Where(watched => watched.Battle is not null).Select(RunBattleAsync),
+        ]);
 
     public async ValueTask DisposeAsync()
     {
@@ -135,11 +141,18 @@ public sealed class LiveTeamService : ILiveTeamSource
 
     private void Add(IEmulatorProvider provider, IEmulatorMemoryReader reader, string name)
     {
+        // Only a provider that can read a battle gets a watcher; the others never raise
+        // BattleChanged, and the Battle tab stays at its placeholder for them. See D-076.
+        BattleWatcher? battle = provider is IBattleReader battleReader
+            ? new BattleWatcher(battleReader, new Gen4BattleDecoder().Decode)
+            : null;
+
         var watched = new Watched(
             provider,
             reader,
             name,
-            new PartyTracker(provider, PartyParserResolver.CreateDefault()));
+            new PartyTracker(provider, PartyParserResolver.CreateDefault()),
+            battle);
 
         provider.StateChanged += (_, state) => Report(watched, state);
 
@@ -218,9 +231,27 @@ public sealed class LiveTeamService : ILiveTeamSource
         }
     }
 
+    private async Task RunBattleAsync(Watched watched)
+    {
+        BattleWatcher battle = watched.Battle!;
+        battle.BattleChanged += (_, snapshot) => BattleChanged?.Invoke(this, snapshot);
+
+        try
+        {
+            // On the thread pool, never the UI thread, for the same reason as the party loop:
+            // the window waits for these loops while it closes (D-074).
+            await Task.Run(() => battle.RunAsync(_cancellation.Token)).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The window closed.
+        }
+    }
+
     private sealed record Watched(
         IEmulatorProvider Provider,
         IEmulatorMemoryReader Reader,
         string Name,
-        PartyTracker Tracker);
+        PartyTracker Tracker,
+        BattleWatcher? Battle);
 }
