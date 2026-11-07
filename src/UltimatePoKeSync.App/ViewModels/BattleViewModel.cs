@@ -7,10 +7,12 @@ using UltimatePoKeSync.Contracts;
 namespace UltimatePoKeSync.App.ViewModels;
 
 /// <summary>
-/// The Battle tab: the opponent on the field and how the party lines up against it. See D-077.
+/// The Battle tab: the opponent on the field, the catch chance, and two tree diagrams for the
+/// Pokémon on the field (D-081). Each of its moves branches to the opponent's types and joins in
+/// the move's result; each of the opponent's types branches to its types the same way.
 /// </summary>
 /// <remarks>
-/// Formats only. The multipliers, the switch order and the catch chances come from
+/// Formats only. The multipliers, their per-type factors and the catch chances come from
 /// <see cref="BattleMatchupAnalyzer"/>, as everything else on the dashboard comes from the
 /// analysis layer (D-028). Empty until a battle starts, and empty again when it ends.
 /// </remarks>
@@ -54,33 +56,25 @@ public sealed partial class BattleViewModel : ObservableObject
     private string _assumption = string.Empty;
 
     [ObservableProperty]
+    private bool _hasActive;
+
+    [ObservableProperty]
     private string _activeName = string.Empty;
 
     [ObservableProperty]
-    private IReadOnlyList<BattleMoveRow> _moves = [];
+    private IReadOnlyList<TypeChip> _activeTypes = [];
 
     [ObservableProperty]
-    private IReadOnlyList<IncomingRow> _incoming = [];
+    private IReadOnlyList<TreeRow> _offense = [];
 
     [ObservableProperty]
-    private string _verdict = string.Empty;
-
-    [ObservableProperty]
-    private IBrush _verdictBrush = Neutral;
-
-    [ObservableProperty]
-    private IReadOnlyList<SwitchRow> _switches = [];
-
-    [ObservableProperty]
-    private IReadOnlyList<WeaknessRow> _weaknesses = [];
+    private IReadOnlyList<TreeRow> _defense = [];
 
     [ObservableProperty]
     private IReadOnlyList<CatchRow> _catches = [];
 
     [ObservableProperty]
     private bool _hasCatches;
-
-    public bool HasActive => Moves.Count > 0 || Incoming.Count > 0;
 
     public void UpdateParty(PartySnapshot party)
     {
@@ -102,6 +96,35 @@ public sealed partial class BattleViewModel : ObservableObject
         0.5 => "x1/2",
         _ => "x" + multiplier.ToString("0.##", CultureInfo.InvariantCulture),
     };
+
+    /// <summary>
+    /// The working behind a multiplier, for a tooltip: "FIRE → GRASS x2 · STEEL x2 = x4", and
+    /// the ability when it overrode the chart.
+    /// </summary>
+    public static string Working(
+        PokemonType attackingType,
+        IReadOnlyList<TypeFactor> factors,
+        double result,
+        string? ability = null)
+    {
+        if (factors.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string chart = $"{Upper(attackingType)} → " + string.Join(
+            " · ", factors.Select(factor => $"{Upper(factor.DefendingType)} {Format(factor.Multiplier)}"));
+        double product = factors.Aggregate(1.0, (total, factor) => total * factor.Multiplier);
+
+        if (factors.Count > 1)
+        {
+            chart += $" = {Format(product)}";
+        }
+
+        return product == result || ability is null
+            ? chart
+            : $"{chart}, then {ability} makes it {Format(result)}";
+    }
 
     private void Rebuild()
     {
@@ -133,45 +156,13 @@ public sealed partial class BattleViewModel : ObservableObject
         OpponentStatus = opponent.Status == StatusCondition.None ? string.Empty : StatusLabel(opponent.Status);
         Assumption = $"Assumes it attacks with {string.Join(" / ", matchup.OpponentTypes)} moves. Its real moves are never read.";
 
-        ActiveName = matchup.Active is PokemonSnapshot active ? Name(active) : "Your Pokémon";
+        PokemonSnapshot? active = matchup.Active;
+        HasActive = active is not null;
+        ActiveName = active is null ? "Your Pokémon" : Name(active);
+        ActiveTypes = active is null ? [] : TypesOf(active);
 
-        Moves = [.. matchup.ActiveMoves.Select(MoveRowFor)];
-        Incoming =
-        [
-            .. matchup.Incoming.Select(hit => new IncomingRow(
-                TypeChip.For(hit.AttackingType, "its type"),
-                Format(hit.Multiplier),
-                IncomingBrush(hit.Multiplier))),
-        ];
-
-        (Verdict, VerdictBrush) = matchup.WorstIncoming switch
-        {
-            null => (string.Empty, Neutral),
-            >= 4 => ($"Worst case {Format(4)}: switch out.", Weak),
-            >= 2 => ($"Worst case {Format(2)}: consider switching.", Weak),
-            double worst when worst >= 1 => ($"Worst case {Format(worst)}: fine to stay.", Neutral),
-            double worst => ($"Worst case {Format(worst)}: it resists both.", Strong),
-        };
-
-        Switches =
-        [
-            .. matchup.SwitchOptions.Select(option => new SwitchRow(
-                Name(option.Member) + (option.IsActive ? "  (in)" : string.Empty),
-                Format(option.WorstIncoming),
-                IncomingBrush(option.WorstIncoming),
-                option.BestMove is MoveMatchup best ? Format(best.Multiplier) : "-",
-                option.BestMove is MoveMatchup move ? OutgoingBrush(move.Multiplier) : Nothing,
-                option.BestMove?.Move.Name ?? "no damaging move",
-                option.IsFainted ? 0.45 : 1)),
-        ];
-
-        Weaknesses =
-        [
-            .. matchup.Weaknesses.Select(bucket => new WeaknessRow(
-                Format(bucket.Multiplier),
-                OutgoingBrush(bucket.Multiplier),
-                [.. bucket.Types.Select(type => TypeChip.For(type, $"{Format(bucket.Multiplier)} against it"))])),
-        ];
+        Offense = [.. matchup.ActiveMoves.Select(MoveTree)];
+        Defense = [.. matchup.Incoming.Select(hit => TypeTree(hit, active))];
 
         Catches =
         [
@@ -188,19 +179,74 @@ public sealed partial class BattleViewModel : ObservableObject
         HasCatches = Catches.Count > 0;
 
         HasMatchup = true;
-        OnPropertyChanged(nameof(HasActive));
     }
 
-    private static BattleMoveRow MoveRowFor(MoveMatchup move) => move.Effect switch
+    /// <summary>One move: its type, a branch per opponent type, and the move's result.</summary>
+    private static TreeRow MoveTree(MoveMatchup move)
     {
-        MoveEffect.Status => new BattleMoveRow(move.Move.Name, TypeChip.For(move.Move.Type, "move type"), "status", Nothing, string.Empty),
-        MoveEffect.Fixed => new BattleMoveRow(
-            move.Move.Name, TypeChip.For(move.Move.Type, "move type"),
-            move.Multiplier == 0 ? Format(0) : "fixed", move.Multiplier == 0 ? Nothing : Neutral, string.Empty),
-        _ => new BattleMoveRow(
-            move.Move.Name, TypeChip.For(move.Move.Type, "move type"),
-            Format(move.Multiplier), OutgoingBrush(move.Multiplier), move.IsStab ? "STAB" : string.Empty),
-    };
+        TypeChip type = TypeChip.For(move.Move.Type, "move type");
+        string stab = move.IsStab && move.Effect != MoveEffect.Status ? "STAB" : string.Empty;
+
+        if (move.Effect == MoveEffect.Status)
+        {
+            return new TreeRow(
+                move.Move.Name, type, stab, [], "status", Nothing,
+                "No damage: the type chart does not apply.", string.Empty);
+        }
+
+        IReadOnlyList<TreeBranch> branches =
+        [
+            .. move.Factors.Select(factor => new TreeBranch(
+                TypeChip.For(factor.DefendingType, "its type"),
+                Format(factor.Multiplier),
+                OutgoingBrush(factor.Multiplier))),
+        ];
+        string working = Working(move.Move.Type, move.Factors, move.Multiplier);
+
+        if (move.Effect == MoveEffect.Fixed)
+        {
+            return move.Multiplier == 0
+                ? new TreeRow(move.Move.Name, type, stab, branches, Format(0), Nothing,
+                    "Fixed damage, but immunities still count.", working)
+                : new TreeRow(move.Move.Name, type, stab, branches, "fixed", Neutral,
+                    "Fixed damage: the multipliers do not scale it.", working);
+        }
+
+        return new TreeRow(
+            move.Move.Name, type, stab, branches, Format(move.Multiplier), OutgoingBrush(move.Multiplier),
+            string.Empty, working);
+    }
+
+    /// <summary>One of the opponent's types: a branch per type of yours, and its result.</summary>
+    private static TreeRow TypeTree(IncomingHit hit, PokemonSnapshot? defender)
+    {
+        string? ability = hit.AbilityAdjusted
+            ? string.IsNullOrWhiteSpace(defender?.AbilityName) ? "its ability" : defender.AbilityName
+            : null;
+        double chart = hit.Factors.Aggregate(1.0, (total, factor) => total * factor.Multiplier);
+
+        return new TreeRow(
+            string.Empty,
+            TypeChip.For(hit.AttackingType, "its type"),
+            string.Empty,
+            [
+                .. hit.Factors.Select(factor => new TreeBranch(
+                    TypeChip.For(factor.DefendingType, "your type"),
+                    Format(factor.Multiplier),
+                    IncomingBrush(factor.Multiplier))),
+            ],
+            Format(hit.Multiplier) + (ability is null ? string.Empty : "*"),
+            IncomingBrush(hit.Multiplier),
+            ability is null ? string.Empty : $"* {ability}: the chart says {Format(chart)}",
+            Working(hit.AttackingType, hit.Factors, hit.Multiplier, ability));
+    }
+
+    private static IReadOnlyList<TypeChip> TypesOf(PokemonSnapshot member) =>
+        member.SecondaryType == PokemonType.None
+            ? [TypeChip.For(member.PrimaryType, "your type")]
+            : [TypeChip.For(member.PrimaryType, "your type"), TypeChip.For(member.SecondaryType, "your type")];
+
+    private static string Upper(PokemonType type) => type.ToString().ToUpperInvariant();
 
     /// <summary>Damage the player deals: more is better.</summary>
     private static IBrush OutgoingBrush(double multiplier) => multiplier switch
@@ -239,20 +285,42 @@ public sealed partial class BattleViewModel : ObservableObject
     };
 }
 
-public sealed record BattleMoveRow(string Name, TypeChip Type, string Multiplier, IBrush MultiplierBrush, string Stab);
+/// <summary>One branch of a tree: a defending type and the chart's multiplier against it.</summary>
+public sealed record TreeBranch(TypeChip Type, string Multiplier, IBrush Brush);
 
-public sealed record IncomingRow(TypeChip Type, string Multiplier, IBrush MultiplierBrush);
+/// <summary>
+/// One row of a tree diagram (D-081): the attacking side (a move, or one of the opponent's
+/// types), a branch per defending type, and the combined result at the end.
+/// </summary>
+/// <param name="Label">The move's name; empty on the opponent's tree, where the type is the node.</param>
+/// <param name="Type">The attacking type.</param>
+/// <param name="Tag">"STAB", or empty.</param>
+/// <param name="Branches">One per defending type; none for a status move.</param>
+/// <param name="Result">The combined multiplier, "status" or "fixed"; "*" when an ability changed it.</param>
+/// <param name="ResultBrush">Good or bad for the player.</param>
+/// <param name="Note">Why the result is not just the product, when it is not.</param>
+/// <param name="Working">The full working, for the tooltip.</param>
+public sealed record TreeRow(
+    string Label,
+    TypeChip Type,
+    string Tag,
+    IReadOnlyList<TreeBranch> Branches,
+    string Result,
+    IBrush ResultBrush,
+    string Note,
+    string Working)
+{
+    public int BranchCount => Branches.Count;
 
-public sealed record SwitchRow(
-    string Name,
-    string Takes,
-    IBrush TakesBrush,
-    string Hits,
-    IBrush HitsBrush,
-    string Move,
-    double Opacity);
+    public bool HasBranches => Branches.Count > 0;
 
-public sealed record WeaknessRow(string Multiplier, IBrush MultiplierBrush, IReadOnlyList<TypeChip> Types);
+    public bool HasLabel => Label.Length > 0;
+
+    public bool HasNote => Note.Length > 0;
+
+    /// <summary>A multiplier reads large; a word ("status", "fixed") smaller, to fit the column.</summary>
+    public double ResultSize => Result.StartsWith('x') ? 20 : 14;
+}
 
 public sealed record CatchRow(string Ball, string Chance, double Fraction)
 {

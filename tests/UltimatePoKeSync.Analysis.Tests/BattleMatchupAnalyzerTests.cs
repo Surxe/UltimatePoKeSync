@@ -1,4 +1,5 @@
 using UltimatePoKeSync.Contracts;
+using UltimatePoKeSync.GameData;
 using Xunit;
 
 namespace UltimatePoKeSync.Analysis.Tests;
@@ -15,6 +16,7 @@ public sealed class BattleMatchupAnalyzerTests
     private static readonly MoveSlot SeismicToss = AnalysisTestData.Move(69, "Seismic Toss", PokemonType.Fighting);
     private static readonly MoveSlot RockSlide = AnalysisTestData.Move(157, "Rock Slide", PokemonType.Rock);
     private static readonly MoveSlot Earthquake = AnalysisTestData.Move(89, "Earthquake", PokemonType.Ground);
+    private static readonly MoveSlot Flamethrower = AnalysisTestData.Move(53, "Flamethrower", PokemonType.Fire);
 
     private static readonly OpponentSnapshot Gyarados = new(
         130, "GYARADOS", 0, 32, PokemonType.Water, PokemonType.Flying, 45, 100, 100, StatusCondition.None);
@@ -59,20 +61,75 @@ public sealed class BattleMatchupAnalyzerTests
         Assert.Equal([PokemonType.Water, PokemonType.Flying], matchup.Incoming.Select(hit => hit.AttackingType));
         Assert.Equal(1, matchup.Incoming[0].Multiplier);
         Assert.Equal(0.5, matchup.Incoming[1].Multiplier);
-        Assert.Equal(1, matchup.WorstIncoming);
     }
 
     [Fact]
-    public void Switch_options_put_the_safest_first_and_the_x4_weak_last()
+    public void Switch_options_keep_party_order_not_best_first()
     {
         BattleMatchup matchup = new BattleMatchupAnalyzer()
             .Analyze(Party(Raichu(), Golem(), Ampharos()), Battle(Gyarados, 0))!;
 
-        // Raichu and Ampharos both take x1 at worst and hit x4; Golem takes x4 from Water.
-        Assert.Equal(["Raichu", "Ampharos", "Golem"], matchup.SwitchOptions.Select(option => option.Member.SpeciesName));
+        // Golem takes x4 from Water but keeps its slot ahead of Ampharos: the tab does not
+        // rank (D-078).
+        Assert.Equal(["Raichu", "Golem", "Ampharos"], matchup.SwitchOptions.Select(option => option.Member.SpeciesName));
         Assert.True(matchup.SwitchOptions[0].IsActive);
-        Assert.Equal(4, matchup.SwitchOptions[2].WorstIncoming);
-        Assert.Equal(157, matchup.SwitchOptions[2].BestMove!.Move.MoveId);
+        Assert.Equal(4, matchup.SwitchOptions[1].WorstIncoming);
+        Assert.Equal([PokemonType.Water, PokemonType.Flying], matchup.SwitchOptions[1].Incoming.Select(hit => hit.AttackingType));
+        Assert.Equal(157, matchup.SwitchOptions[1].BestMove!.Move.MoveId);
+    }
+
+    [Fact]
+    public void A_dual_type_result_carries_one_factor_per_defending_type()
+    {
+        var forretress = new OpponentSnapshot(
+            205, "FORRETRESS", 0, 40, PokemonType.Bug, PokemonType.Steel, 75, 100, 100, StatusCondition.None);
+        PokemonSnapshot charizard = AnalysisTestData.Member(
+            slot: 0, primaryType: PokemonType.Fire, secondaryType: PokemonType.Flying, moves: [Flamethrower]);
+
+        MoveMatchup flamethrower = new BattleMatchupAnalyzer()
+            .Analyze(Party(charizard), Battle(forretress, 0))!.ActiveMoves.Single();
+
+        Assert.Equal(4, flamethrower.Multiplier);
+        Assert.Equal(
+            [new TypeFactor(PokemonType.Bug, 2), new TypeFactor(PokemonType.Steel, 2)],
+            flamethrower.Factors);
+    }
+
+    [Fact]
+    public void An_immunity_inside_a_dual_type_shows_in_the_factors()
+    {
+        MoveMatchup earthquake = new BattleMatchupAnalyzer()
+            .Analyze(Party(Golem()), Battle(Gyarados, active: 1))!
+            .ActiveMoves.Single(move => move.Move.MoveId == 89);
+
+        Assert.Equal(0, earthquake.Multiplier);
+        Assert.Equal(
+            [new TypeFactor(PokemonType.Water, 1), new TypeFactor(PokemonType.Flying, 0)],
+            earthquake.Factors);
+    }
+
+    [Fact]
+    public void An_ability_that_overrides_the_chart_is_flagged()
+    {
+        var dugtrio = new OpponentSnapshot(
+            51, "DUGTRIO", 0, 30, PokemonType.Ground, PokemonType.None, 50, 100, 100, StatusCondition.None);
+        PokemonSnapshot gengar = AnalysisTestData.Member(
+            slot: 0, primaryType: PokemonType.Ghost, secondaryType: PokemonType.Poison,
+            abilityId: Gen4AbilityIds.Levitate, moves: [Thunderbolt]);
+        PokemonSnapshot raichu = Raichu() with { SlotIndex = 1, PersonalityValue = 1 };
+
+        BattleMatchup matchup = new BattleMatchupAnalyzer().Analyze(Party(gengar, raichu), Battle(dugtrio, 0))!;
+
+        IncomingHit levitating = matchup.Incoming.Single();
+        Assert.Equal(0, levitating.Multiplier);
+        Assert.True(levitating.AbilityAdjusted);
+        Assert.Equal(
+            [new TypeFactor(PokemonType.Ghost, 1), new TypeFactor(PokemonType.Poison, 2)],
+            levitating.Factors);
+
+        IncomingHit plain = matchup.SwitchOptions.Single(option => option.Member.SpeciesName == "Raichu").Incoming.Single();
+        Assert.Equal(2, plain.Multiplier);
+        Assert.False(plain.AbilityAdjusted);
     }
 
     [Fact]

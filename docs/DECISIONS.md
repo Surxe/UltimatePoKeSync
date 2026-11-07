@@ -3062,7 +3062,7 @@ field's data, and plausible-looking bytes there would invent a battle).
 
 ## D-077. A Battle tab: the opponent, the type facts, and the catch chance
 
-**Status:** Accepted · 2026-11-06
+**Status:** Accepted · 2026-11-06 · the layout below the opponent header superseded by D-081
 
 A new tab, empty until a battle starts, that shows the opponent on the field and how the party
 lines up against it, in lists rather than an 18-by-18 grid:
@@ -3088,3 +3088,115 @@ Contest and Pal Park battles. Tests pin five worked cases to the exact threshold
 
 **Known limits.** In Gen 4 the party is a battle behind (D-067), so a member that fainted in this
 battle is not greyed out until it ends. Double battles show a placeholder (D-075).
+
+## D-078. The Battle tab leads with types, not answers
+
+**Status:** Superseded by D-081 · 2026-11-07 (its per-type factors are the branches of D-081's trees)
+
+D-077's tab could be read without learning the type chart. The switch table showed bare
+multipliers, it was sorted best-first, and a verdict line said whether to switch. The tab is
+meant to help the player learn the chart, so every number now sits beside the types that
+produce it. It is still a short readout, not a quiz: nothing is hidden behind a click.
+
+- **Switch options become "Your party", in slot order.** Each row shows the battler's own type
+  chips. Under *takes* it shows one cell per opponent type (type chip and multiplier), not the
+  single worst number. Under *hits with* it shows the best move's type chip, multiplier and name.
+  Nothing is sorted by matchup, and a fainted member is dimmed where it stands.
+- **The working is shown.** Each result carries its per-defending-type factors (`TypeFactor`,
+  from the single-type chart entry). Hovering a multiplier shows
+  `FIRE → BUG x2 · STEEL x2 = x4`. The moves and incoming panels also print the breakdown inline
+  when the defender has two types. Nothing is printed for a single type, because the result
+  already says it. When an ability overrides the chart (Levitate, Flash Fire, ...) the hit is
+  flagged and the ability is named, so the chart and the exception are never confused.
+- **The verdict line is gone.** The "It hits you with" header shows the active Pokémon's own
+  types instead, so the player works out the verdict.
+- **"What hurts it" starts collapsed.** It is the whole answer key for the opponent, and the
+  rows above already show the matchups in play.
+
+Rejected: a study/answers toggle, and a predict-then-reveal quiz. Both turn a battle readout
+into an exercise. Showing the types and the working beside every number teaches the chart
+without slowing the readout down.
+
+## D-079. A type chart panel on the Battle tab
+
+**Status:** Withdrawn by D-081 · 2026-11-07
+
+D-077 chose lists over an 18-by-18 grid because lists are more compact. For learning the chart
+that trade goes the other way. The grid is what a player memorises, and it is learned by
+position ("Ground is that row, Flying is the column with the 0"). So the Battle tab now draws the
+whole single-type chart, and the "What hurts it" list is gone.
+
+- **The whole chart, fixed in place.** Rows attack and columns defend. It uses the familiar
+  printed order (Normal, Fire, Water, Electric, ...), not the game's internal index order, and
+  marks cells as the printed chart does: 2, ½, 0, and blank for x1. Cells keep their positions
+  every battle; only the lighting changes.
+- **Two slices are lit, for one focused party member.** One colour shows the focus's damaging
+  move types against the opponent's columns. The other shows the opponent's types against the
+  focus's columns. Everything else is dimmed but still readable. The focus is the Pokémon on the
+  field. A left click on a row of the party table pins that member instead; clicking it again,
+  or the battle ending, unpins it. One focus at a time keeps a chart of six members from
+  becoming noise.
+- **Dual types get combined columns, outside the grid.** The chart's own cells stay
+  single-type. After a gap, IT is every attacking type against the opponent's types multiplied,
+  and YOU is the same against the focus. They sit beside the columns they come from, so the
+  multiplication is visible. IT replaces the "What hurts it" list.
+- **Abilities are a marker, not a change to the chart.** A YOU cell that an ability overrides
+  carries a `*`, and its tooltip names the ability (for example
+  `GROUND → GHOST x1 · POISON x2 = x2, then Levitate makes it x0`). The grid itself stays the
+  plain chart. The opponent's abilities are ignored, as in D-075.
+
+The chart's data comes from the analysis layer (`TypeChartGrid`, `CombinedCell`). The view model
+only lays out and lights the cells (D-028).
+
+## D-080. The type chart is the Battle tab
+
+**Status:** Withdrawn by D-081 · 2026-11-07
+
+With the chart in place (D-079), the "Your moves", "It hits you with" and "Your party" panels
+repeated what its lit cells already show, in a second form. They are removed. The tab is now
+the opponent header with the catch chance beside it, then the chart across the full width.
+
+- **The chart scales to the panel.** The grid sits in a `Viewbox`, so cells and their marks
+  grow with the available width (about 1.6 times the D-079 size at the tab's 980 px cap). At
+  that size ½ and ¼ are legible.
+- **Pinning moves to a party picker** above the chart. Each member shows its name and type
+  chips. A left click pins it; clicking again unpins it. The pinned member has a yellow border,
+  and the member the chart follows when nothing is pinned has a grey one. A fainted member is
+  dimmed.
+- **A cell in both slices shows both.** One cell can be your move into the opponent and its
+  type into you at once, for example Poison into Poison when both sides are part Poison. Each
+  slice therefore has its own ring in a fixed position: the outer ring (cyan) is your moves
+  into it, and the inner ring (yellow) is its types into you. A cell in both shows both rings.
+  Type headers carry no rings, so their labels keep the full cell width.
+- What the removed panels carried is still there. A move's multiplier is its lit row in the IT
+  column. What the opponent's types do to a member is its lit cells in YOU. The working is in
+  every cell's tooltip.
+
+## D-081. The Battle tab is two tree diagrams for the Pokémon on the field
+
+**Status:** Accepted · 2026-11-07
+
+The full type chart (D-079, D-080) was withdrawn. It taught positions on a grid, but in a battle
+it made the player hunt for the few cells that mattered. The tab now draws only the matchups
+in play, as horizontal trees that show how each result is built:
+
+- **Your moves.** One row per move of the Pokémon on the field: its type and name (and STAB),
+  a fork to one branch per opponent type with the chart's multiplier against that type, and a
+  merge into the move's combined multiplier at the end of the row. A status move has no
+  branches and reads "status". A fixed-damage move keeps its branches, because an immunity
+  still stops it, and reads "fixed", or x0 when immune.
+- **Its types into you.** A separate panel, built the same way: one row per opponent type,
+  branching to the active Pokémon's types, merging into what that type does to it. When an
+  ability overrides the chart, the result carries a `*` and a note names the ability and what
+  the chart alone says (for example `x0*`, "Levitate: the chart says x2").
+- **Active Pokémon only, one opponent.** There is no party picker and no ranking. The battle
+  reader only produces single battles (doubles show a placeholder, D-075), so there is one
+  opponent. If doubles are read later, an opponent picker defaulting to the first belongs in
+  the opponent header, and both trees would follow it.
+- **It fits a 1080p screen.** Both trees share column widths, and the type chips have a fixed
+  width, so the columns line up. The opponent header is compact, with the catch chance beside
+  it. The worst case (four moves against a dual type, a wild battle, an ability note) measures
+  749 px including margins, against about 815 px left for the tab at 1080p.
+
+The branches are the per-type `TypeFactor`s from D-078. The fork and merge lines are a small
+`TreeConnector` control, so they meet the branch centres for one branch or two.

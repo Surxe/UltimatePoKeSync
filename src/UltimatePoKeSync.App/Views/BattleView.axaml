@@ -1,11 +1,58 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:UltimatePoKeSync.App.ViewModels"
+             xmlns:app="using:UltimatePoKeSync.App"
              x:Class="UltimatePoKeSync.App.Views.BattleView"
              x:DataType="vm:BattleViewModel">
 
-  <!-- The Battle tab (D-077): a readout, not a type grid. Empty outside a battle. -->
-  <StackPanel Spacing="18" MaxWidth="980">
+  <UserControl.Resources>
+    <!--
+      One row of a tree (D-081): the attacking node, a fork to one branch per defending type
+      (the chart's multiplier against each), a merge into the combined result, then a note
+      when the result is not just the product. Both trees share the column widths so they
+      line up.
+    -->
+    <DataTemplate x:Key="TreeRowTemplate" x:DataType="vm:TreeRow">
+      <Grid ColumnDefinitions="236,28,146,28,100,*" Margin="0,2" Background="Transparent"
+            ToolTip.Tip="{Binding Working}">
+        <!-- Fixed chip width, so names and multipliers line up whatever the type's length. -->
+        <Grid ColumnDefinitions="88,Auto,Auto" ColumnSpacing="6" VerticalAlignment="Center">
+          <ContentControl Content="{Binding Type}" ContentTemplate="{StaticResource InkChipSmallTemplate}" />
+          <TextBlock Grid.Column="1" Text="{Binding Label}" IsVisible="{Binding HasLabel}" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" MaxWidth="104" />
+          <TextBlock Grid.Column="2" Text="{Binding Tag}" Classes="mono" FontSize="10.5"
+                     Foreground="{StaticResource Accent}" VerticalAlignment="Center" />
+        </Grid>
+        <app:TreeConnector Grid.Column="1" Count="{Binding BranchCount}" IsVisible="{Binding HasBranches}"
+                           Stroke="{StaticResource TextFaint}" />
+        <ItemsControl Grid.Column="2" ItemsSource="{Binding Branches}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TreeBranch">
+              <Grid ColumnDefinitions="88,*" Height="26" Margin="6,0,0,0">
+                <ContentControl Content="{Binding Type}" ContentTemplate="{StaticResource InkChipSmallTemplate}" />
+                <TextBlock Grid.Column="1" Text="{Binding Multiplier}" FontFamily="{StaticResource Display}" FontSize="14"
+                           Foreground="{Binding Brush}" VerticalAlignment="Center" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <app:TreeConnector Grid.Column="3" Count="{Binding BranchCount}" Merge="True"
+                           IsVisible="{Binding HasBranches}" Stroke="{StaticResource TextFaint}" />
+        <TextBlock Grid.Column="4" Text="{Binding Result}" FontFamily="{StaticResource Display}"
+                   FontSize="{Binding ResultSize}" Foreground="{Binding ResultBrush}" VerticalAlignment="Center"
+                   Margin="8,0,0,0" />
+        <TextBlock Grid.Column="5" Text="{Binding Note}" IsVisible="{Binding HasNote}" FontSize="12" Margin="6,0,0,0"
+                   Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" VerticalAlignment="Center" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <!--
+    The Battle tab (D-077): the opponent and the catch chance, then two tree diagrams for the
+    Pokémon on the field (D-081). Sized to fit a 1080p screen without scrolling. Empty outside
+    a battle.
+  -->
+  <StackPanel Spacing="14" MaxWidth="980">
 
     <Border Classes="panel" IsVisible="{Binding !HasMatchup}">
       <StackPanel Spacing="7">
@@ -15,145 +62,38 @@
       </StackPanel>
     </Border>
 
-    <StackPanel Spacing="18" IsVisible="{Binding HasMatchup}">
-
-      <!-- Opponent: what the battle screen shows, plus its Pokédex types. -->
-      <Border BorderBrush="{StaticResource Ink}" BorderThickness="4" CornerRadius="22"
-              Background="{StaticResource PanelAltDeep}" BoxShadow="{StaticResource ShadowHero}"
-              Padding="24">
-        <StackPanel Spacing="10">
-          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
-            <TextBlock Text="{Binding OpponentName}" Classes="display" FontSize="27"
-                       VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Text="{Binding OpponentLevel}" Classes="mono"
-                       Foreground="{StaticResource Lavender}" FontSize="16"
-                       VerticalAlignment="Center" />
-            <ItemsControl Grid.Column="2" ItemsSource="{Binding OpponentTypes}"
-                          ItemTemplate="{StaticResource InkChipTemplate}"
-                          ItemsPanel="{StaticResource ChipWrap}" VerticalAlignment="Center"
-                          Margin="4,7,0,0" />
-            <TextBlock Grid.Column="3" Text="{Binding OpponentStatus}" Classes="strong"
-                       Foreground="{StaticResource Alert}" VerticalAlignment="Center" />
-          </Grid>
-          <ProgressBar Value="{Binding OpponentHpPercent}" Maximum="100" Height="10"
-                       Foreground="{Binding OpponentHpBrush}" />
-          <TextBlock Text="{Binding Assumption}" FontSize="12"
-                     Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-
-      <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
-
-        <!-- Offence: the active Pokémon's moves against it. -->
-        <Border Classes="panel" Padding="20">
-          <StackPanel Spacing="10">
-            <TextBlock Classes="strong" FontSize="16">
-              <Run Text="Your moves" />
-              <Run Text="{Binding ActiveName, Mode=OneWay, StringFormat=' · {0}'}" Foreground="{StaticResource TextMuted}" />
-            </TextBlock>
-            <TextBlock Text="Your Pokémon on the field is not in the party read yet."
-                       Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
-                       IsVisible="{Binding !HasActive}" />
-            <ItemsControl ItemsSource="{Binding Moves}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:BattleMoveRow">
-                  <Grid ColumnDefinitions="*,110,96,40" ColumnSpacing="10" Margin="0,3">
-                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                    <ContentControl Grid.Column="1" Content="{Binding Type}"
-                                    ContentTemplate="{StaticResource InkChipTemplate}" />
-                    <TextBlock Grid.Column="2" Text="{Binding Multiplier}" Classes="display"
-                               FontSize="18" Foreground="{Binding MultiplierBrush}"
-                               VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="3" Text="{Binding Stab}" Classes="mono" FontSize="11"
-                               Foreground="{StaticResource Accent}" VerticalAlignment="Center" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </Border>
-
-        <!-- Defence: its own types against the active Pokémon. -->
-        <Border Grid.Column="1" Classes="panel" Padding="20">
-          <StackPanel Spacing="10">
-            <TextBlock Text="It hits you with" Classes="strong" FontSize="16" />
-            <ItemsControl ItemsSource="{Binding Incoming}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:IncomingRow">
-                  <Grid ColumnDefinitions="110,*" ColumnSpacing="10" Margin="0,3">
-                    <ContentControl Content="{Binding Type}"
-                                    ContentTemplate="{StaticResource InkChipTemplate}" />
-                    <TextBlock Grid.Column="1" Text="{Binding Multiplier}" Classes="display"
-                               FontSize="18" Foreground="{Binding MultiplierBrush}"
-                               VerticalAlignment="Center" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Text="{Binding Verdict}" Classes="strong"
-                       Foreground="{Binding VerdictBrush}" TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-      </Grid>
-
-      <!-- Who to switch to: both numbers shown, never folded into a score. -->
-      <Border Classes="panel" Padding="20">
-        <StackPanel Spacing="8">
-          <Grid ColumnDefinitions="*,70,70,170" ColumnSpacing="10">
-            <TextBlock Text="Switch options" Classes="strong" FontSize="16" />
-            <TextBlock Grid.Column="1" Text="takes" Classes="mono" FontSize="11"
-                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
-            <TextBlock Grid.Column="2" Text="hits" Classes="mono" FontSize="11"
-                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
-            <TextBlock Grid.Column="3" Text="with" Classes="mono" FontSize="11"
-                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
-          </Grid>
-          <ItemsControl ItemsSource="{Binding Switches}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:SwitchRow">
-                <Grid ColumnDefinitions="*,70,70,170" ColumnSpacing="10" Margin="0,3"
-                      Opacity="{Binding Opacity}">
-                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" Text="{Binding Takes}" Classes="display" FontSize="16"
-                             Foreground="{Binding TakesBrush}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Text="{Binding Hits}" Classes="display" FontSize="16"
-                             Foreground="{Binding HitsBrush}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="3" Text="{Binding Move}" Foreground="{StaticResource TextMuted}"
-                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Border>
+    <StackPanel Spacing="14" IsVisible="{Binding HasMatchup}">
 
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
-
-        <!-- What hurts it: the chart for its types, grouped, neutral left out. -->
-        <Border Classes="panel" Padding="20">
+        <!-- Opponent: what the battle screen shows, plus its Pokédex types. -->
+        <Border BorderBrush="{StaticResource Ink}" BorderThickness="4" CornerRadius="22"
+                Background="{StaticResource PanelAltDeep}" BoxShadow="{StaticResource ShadowHero}"
+                Padding="20,16">
           <StackPanel Spacing="10">
-            <TextBlock Text="What hurts it" Classes="strong" FontSize="16" />
-            <ItemsControl ItemsSource="{Binding Weaknesses}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:WeaknessRow">
-                  <Grid ColumnDefinitions="64,*" ColumnSpacing="10" Margin="0,2">
-                    <TextBlock Text="{Binding Multiplier}" Classes="display" FontSize="16"
-                               Foreground="{Binding MultiplierBrush}" Margin="0,5,0,0" />
-                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Types}"
-                                  ItemTemplate="{StaticResource InkChipTemplate}"
-                                  ItemsPanel="{StaticResource ChipWrap}" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
+              <TextBlock Text="{Binding OpponentName}" Classes="display" FontSize="24"
+                         VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{Binding OpponentLevel}" Classes="mono"
+                         Foreground="{StaticResource Lavender}" FontSize="16"
+                         VerticalAlignment="Center" />
+              <ItemsControl Grid.Column="2" ItemsSource="{Binding OpponentTypes}"
+                            ItemTemplate="{StaticResource InkChipTemplate}"
+                            ItemsPanel="{StaticResource ChipWrap}" VerticalAlignment="Center"
+                            Margin="4,7,0,0" />
+              <TextBlock Grid.Column="3" Text="{Binding OpponentStatus}" Classes="strong"
+                         Foreground="{StaticResource Alert}" VerticalAlignment="Center" />
+            </Grid>
+            <ProgressBar Value="{Binding OpponentHpPercent}" Maximum="100" Height="10"
+                         Foreground="{Binding OpponentHpBrush}" />
           </StackPanel>
         </Border>
 
         <!-- Catch chance per throw, wild battles only. -->
-        <Border Grid.Column="1" Classes="panel" Padding="20" MinWidth="260"
-                IsVisible="{Binding HasCatches}" VerticalAlignment="Top">
-          <StackPanel Spacing="10">
-            <TextBlock Text="Catch chance" Classes="strong" FontSize="16" />
+        <Border Grid.Column="1" Classes="panel" Padding="18,14" MinWidth="240"
+                IsVisible="{Binding HasCatches}" VerticalAlignment="Stretch">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Catch chance" Classes="strong" FontSize="16"
+                       ToolTip.Tip="Per throw, at its current HP and status." />
             <ItemsControl ItemsSource="{Binding Catches}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:CatchRow">
@@ -168,11 +108,51 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Per throw, at its current HP and status." FontSize="12"
-                       Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
       </Grid>
+
+      <!-- Offence: each move's type, branching to the opponent's types, into the move's result. -->
+      <Border Classes="panel" Padding="20,14">
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Classes="strong" FontSize="16" VerticalAlignment="Center">
+              <Run Text="Your moves" />
+              <Run Text="{Binding ActiveName, Mode=OneWay, StringFormat=' · {0}'}" Foreground="{StaticResource TextMuted}" />
+            </TextBlock>
+            <ItemsControl ItemsSource="{Binding ActiveTypes}" ItemTemplate="{StaticResource InkChipSmallTemplate}"
+                          ItemsPanel="{StaticResource ChipRow}" VerticalAlignment="Center" />
+          </StackPanel>
+          <Grid ColumnDefinitions="236,28,146,28,100,*">
+            <TextBlock Text="move" Classes="mono" FontSize="10.5" />
+            <TextBlock Grid.Column="2" Text="its types" Classes="mono" FontSize="10.5" Margin="6,0,0,0" />
+            <TextBlock Grid.Column="4" Text="combined" Classes="mono" FontSize="10.5" Margin="8,0,0,0" />
+          </Grid>
+          <TextBlock Text="Your Pokémon on the field is not in the party read yet."
+                     Foreground="{StaticResource TextMuted}" IsVisible="{Binding !HasActive}" />
+          <ItemsControl ItemsSource="{Binding Offense}" ItemTemplate="{StaticResource TreeRowTemplate}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Defence: each of its types, branching to yours, into what that type does to you. -->
+      <Border Classes="panel" Padding="20,14">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="strong" FontSize="16">
+            <Run Text="Its types into" />
+            <Run Text="{Binding ActiveName, Mode=OneWay}" Foreground="{StaticResource TextMuted}" />
+          </TextBlock>
+          <Grid ColumnDefinitions="236,28,146,28,100,*">
+            <TextBlock Text="its type" Classes="mono" FontSize="10.5" />
+            <TextBlock Grid.Column="2" Text="your types" Classes="mono" FontSize="10.5" Margin="6,0,0,0" />
+            <TextBlock Grid.Column="4" Text="combined" Classes="mono" FontSize="10.5" Margin="8,0,0,0" />
+          </Grid>
+          <TextBlock Text="Your Pokémon on the field is not in the party read yet."
+                     Foreground="{StaticResource TextMuted}" IsVisible="{Binding !HasActive}" />
+          <ItemsControl ItemsSource="{Binding Defense}" ItemTemplate="{StaticResource TreeRowTemplate}" />
+          <TextBlock Text="{Binding Assumption}" FontSize="11.5" Foreground="{StaticResource TextFaint}"
+                     TextWrapping="Wrap" Margin="0,4,0,0" />
+        </StackPanel>
+      </Border>
     </StackPanel>
   </StackPanel>
 </UserControl>

@@ -67,14 +67,12 @@ public sealed class BattleMatchupAnalyzer
                         member,
                         IsActive: ReferenceEquals(member, active),
                         IsFainted: member.CurrentHp <= 0,
-                        WorstIncoming: Incoming(member, opponentTypes, rules).Max(hit => hit.Multiplier),
+                        Incoming: Incoming(member, opponentTypes, rules),
                         BestMove: best);
                 })
-                .OrderBy(option => option.IsFainted)
-                .ThenBy(option => option.WorstIncoming)
-                .ThenByDescending(option => option.BestMove?.Multiplier ?? -1)
-                .ThenByDescending(option => option.BestMove?.IsStab ?? false)
-                .ThenBy(option => option.Member.SlotIndex),
+                // Party order, not best-first: the tab shows the types and leaves the choice
+                // to the player (D-078).
+                .OrderBy(option => option.Member.SlotIndex),
         ];
 
         IReadOnlyList<CatchChance> catchChances = battle.IsWild
@@ -105,20 +103,21 @@ public sealed class BattleMatchupAnalyzer
 
                     if (rules.GetMoveCategory(move.MoveId, move.Type) == MoveCategory.Status)
                     {
-                        return new MoveMatchup(move, MoveEffect.Status, 1, isStab);
+                        return new MoveMatchup(move, MoveEffect.Status, 1, isStab, []);
                     }
 
-                    double multiplier = rules.TypeChart.GetMultiplier(
-                        move.Type, opponent.PrimaryType, opponent.SecondaryType);
+                    IReadOnlyList<TypeFactor> factors =
+                        Factors(move.Type, opponent.PrimaryType, opponent.SecondaryType, rules);
+                    double multiplier = Product(factors);
 
                     // A fixed-damage move still cannot touch an immune type: Seismic Toss does
                     // nothing to a Ghost. Only the scaling is lost, not the immunity.
                     if (!rules.CanProvideSuperEffectiveCoverage(move.MoveId))
                     {
-                        return new MoveMatchup(move, MoveEffect.Fixed, multiplier == 0 ? 0 : 1, isStab);
+                        return new MoveMatchup(move, MoveEffect.Fixed, multiplier == 0 ? 0 : 1, isStab, factors);
                     }
 
-                    return new MoveMatchup(move, MoveEffect.Damaging, multiplier, isStab);
+                    return new MoveMatchup(move, MoveEffect.Damaging, multiplier, isStab, factors);
                 }),
         ];
 
@@ -127,10 +126,31 @@ public sealed class BattleMatchupAnalyzer
         IReadOnlyList<PokemonType> opponentTypes,
         IGenerationRules rules) =>
         [
-            .. opponentTypes.Select(type => new IncomingHit(
-                type,
-                rules.GetDefensiveMultiplier(type, member.PrimaryType, member.SecondaryType, member.AbilityId))),
+            .. opponentTypes.Select(type =>
+            {
+                IReadOnlyList<TypeFactor> factors = Factors(type, member.PrimaryType, member.SecondaryType, rules);
+                double multiplier = rules.GetDefensiveMultiplier(
+                    type, member.PrimaryType, member.SecondaryType, member.AbilityId);
+                return new IncomingHit(type, multiplier, factors, multiplier != Product(factors));
+            }),
         ];
+
+    /// <summary>The chart entry against each defending type, mirroring <see cref="ITypeChart.GetMultiplier(PokemonType, PokemonType, PokemonType)"/>.</summary>
+    private static IReadOnlyList<TypeFactor> Factors(
+        PokemonType attackingType,
+        PokemonType primaryType,
+        PokemonType secondaryType,
+        IGenerationRules rules) =>
+        secondaryType == PokemonType.None
+            ? [new TypeFactor(primaryType, rules.TypeChart.GetMultiplier(attackingType, primaryType))]
+            :
+            [
+                new TypeFactor(primaryType, rules.TypeChart.GetMultiplier(attackingType, primaryType)),
+                new TypeFactor(secondaryType, rules.TypeChart.GetMultiplier(attackingType, secondaryType)),
+            ];
+
+    private static double Product(IReadOnlyList<TypeFactor> factors) =>
+        factors.Aggregate(1.0, (product, factor) => product * factor.Multiplier);
 
     private static IReadOnlyList<TypeBucket> Weaknesses(OpponentSnapshot opponent, IGenerationRules rules)
     {
