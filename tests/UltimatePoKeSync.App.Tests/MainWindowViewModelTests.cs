@@ -413,6 +413,10 @@ public sealed class MainWindowViewModelTests
 
         public event EventHandler<PartySnapshot>? PartyChanged;
 
+#pragma warning disable CS0067 // Never raised: these fakes replay parties only.
+        public event EventHandler<BattleSnapshot>? BattleChanged;
+#pragma warning restore CS0067
+
         public int Port => 8888;
 
         public IEmulatorMemoryReader? MemoryReader => null;

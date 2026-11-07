@@ -16,6 +16,12 @@ public interface ILiveTeamSource : IAsyncDisposable
 
     event EventHandler<PartySnapshot>? PartyChanged;
 
+    /// <summary>
+    /// The battle on the field changed: started, moved on, or ended. Only from emulators and
+    /// games that can read it; never raised for the rest. See D-076.
+    /// </summary>
+    event EventHandler<BattleSnapshot>? BattleChanged;
+
     /// <summary>The port the user has to match in the bridge script.</summary>
     int Port { get; }
 

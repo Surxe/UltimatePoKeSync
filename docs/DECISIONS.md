@@ -2984,3 +2984,107 @@ confirmation.
 it is the deadlock above, and the loop change is what removes it), and leave the app to
 exit and rely on the operating system to close the socket (rejected: the emulator does not
 treat a dropped socket as a detach, which is the whole problem).
+
+## D-075. A battle shows only what the screen and a Pokédex show
+
+**Status:** Accepted · 2026-11-06
+
+The app now reads the battle on the field (D-076) for a Battle tab (D-077). The same memory that
+holds the opponent's species also holds its moves, PP, held item, ability, stats and, for a
+trainer, the rest of the party. Showing any of that would turn the tool into a cheat, which is
+not what it is for.
+
+**The rule.** The battle record carries the opponent's species, form, level, current and
+maximum HP and status, which are all on the battle screen, and the species' types and catch
+rate, which are in any Pokédex. For the player's side it carries only the personality value of
+the Pokémon on the field, to find it in the party.
+
+**Enforced by shape, not by the UI.** The provider reads a battler's record in one request
+(D-072) and copies only those fields out of it into `RawBattler`; `OpponentSnapshot` has no
+field for anything else. A test (`The_opponent_record_carries_nothing_the_screen_does_not_show`)
+fails if one is added. The exact HP feeds the catch chance; the tab shows it as a bar, as the
+game does.
+
+**What follows from it.** The opponent is assumed to attack with moves of its own types, and
+the tab says so. Abilities are ignored on the opponent's side: which of a species' abilities it
+has is not on screen. The player's own abilities still count on incoming damage, as on the Team
+tab.
+
+**Double battles** are recognised and not read; the tab says so. A later decision.
+
+**Alternatives considered:** read the opponent's real moves (rejected: it is the one thing the
+player cannot know, and the reason this decision exists), and apply abilities when a species
+has only one (rejected for now, by the player's choice; the cost is that a Ground move shows
+x2 against a Gengar whose Levitate makes it x0).
+
+## D-076. The SoulSilver battle is reached through the VBlank callback slot
+
+**Status:** Accepted · 2026-11-06
+
+The battle is heap-allocated and moves between boots, as the party does (D-067), so it needs a
+fixed place to start from. That place is the game's VBlank callback slot at `0x021D110C`: a
+handler and the argument passed to it. During a battle the handler is the battle's own
+(`0x02239731`, a Thumb address in the battle overlay) and the argument is the `BattleSystem`.
+Elsewhere the slot holds another screen's pair (the field's handler is `0x021E5901`), and for a
+moment between them it is zero.
+
+**How it was found.** A 4 MB dump during a wild battle in the player's save, searched with the
+layout of `BattleMon` from pret/pokeheartgold (`include/battle/battle.h`): the player's Crobat
+and the wild Geodude turned up 0xC0 apart, the struct's size, at `ctx + 0x2D40`. One word in
+fixed memory led to that `BattleSystem`, and the game's code names the slot before it in 181
+places, which is what a global looks like. Reading the slot live in the field showed another
+handler there, and that is what makes the handler the test for "in battle".
+
+**Verified live**, headless, on two fresh boots of the player's save: the `BattleSystem` moved
+(`0x022C02C8`, then `0x022C0278`), the handler stayed, and the chain led to the right Pokémon
+each time (a Geodude, then a Cubone). A trace across a battle saw the handler hold from the
+intro to the faint, the opponent's maximum HP read 0 for one poll while the battle filled it in,
+and HP fall after an attack. A U-turn switch moved the player's battler to the Feraligatr, and
+the tab followed by personality value. Running away cleared it.
+
+**Reads.** One 8-byte read a poll outside a battle; in one, three more: the battle type and
+context pointer, then each battler's record in a request of its own (D-072). Polled twice a
+second. The headless emulator held 60 FPS in and out of battle with the app running, and six
+closes of the window mid-battle left the stub answering (D-074).
+
+A trainer battle, from a savestate the player made, read `battleType` 1 (the trainer bit), the
+opponent's Oddish correctly, no catch chance, the Oddish's HP falling to 0, and an empty tab
+once the trainer was beaten.
+
+**Not covered.** A trainer sending out a second Pokémon (that trainer had one) and double
+battles have not been read live; the doubles bit is the decomp's `BATTLE_TYPE_DOUBLES`. HP reads
+ahead of the screen: the game's value drops at once and the bar animates down to it.
+
+**Alternatives considered:** a pointer inside the overlay's own data (rejected: none was
+found in fixed memory, and the overlay's data moves with what else is loaded), and recognising a
+battle by the battle mons looking plausible (rejected: out of battle the slot's argument is the
+field's data, and plausible-looking bytes there would invent a battle).
+
+## D-077. A Battle tab: the opponent, the type facts, and the catch chance
+
+**Status:** Accepted · 2026-11-06
+
+A new tab, empty until a battle starts, that shows the opponent on the field and how the party
+lines up against it, in lists rather than an 18-by-18 grid:
+
+- the opponent: name, level, types, HP bar, status;
+- the active Pokémon's moves against it, each with its multiplier and STAB, "status" for a
+  status move, "fixed" for fixed damage (which still respects immunities);
+- what the opponent's own types do to the active Pokémon, and a one-line verdict;
+- every party battler as a switch option: worst multiplier taken, best multiplier dealt and with
+  which move, sorted on those two and never folded into one score;
+- the attacking types that hurt the opponent, grouped x4 to x0;
+- in a wild battle, the chance one Poké, Great or Ultra Ball catches it.
+
+The switch options show whether or not recommendations are on: they are type arithmetic, not
+advice about builds. No automatic switch to the tab: it is there when wanted.
+
+**Catch chance.** A transcription of `BattleSystem_CalculateBallShakes` from pret/pokeheartgold,
+integer steps in the game's order: catch rate times the ball (10, 15, 20), divided by 10, then
+the HP fraction, then status (x2 asleep or frozen, x1.5 otherwise), then four shake checks
+against `0xFFFF0 / isqrt(isqrt(0xFF0000 / a))`. Only the three standard balls, because their
+multipliers depend on nothing the app does not read. Hidden in trainer, Safari, Bug-Catching
+Contest and Pal Park battles. Tests pin five worked cases to the exact threshold.
+
+**Known limits.** In Gen 4 the party is a battle behind (D-067), so a member that fainted in this
+battle is not greyed out until it ends. Double battles show a placeholder (D-075).

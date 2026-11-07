@@ -1,0 +1,178 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:UltimatePoKeSync.App.ViewModels"
+             x:Class="UltimatePoKeSync.App.Views.BattleView"
+             x:DataType="vm:BattleViewModel">
+
+  <!-- The Battle tab (D-077): a readout, not a type grid. Empty outside a battle. -->
+  <StackPanel Spacing="18" MaxWidth="980">
+
+    <Border Classes="panel" IsVisible="{Binding !HasMatchup}">
+      <StackPanel Spacing="7">
+        <TextBlock Text="BATTLE" Classes="display" FontSize="18" />
+        <TextBlock Text="{Binding Placeholder}" Foreground="{StaticResource TextMuted}"
+                   TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <StackPanel Spacing="18" IsVisible="{Binding HasMatchup}">
+
+      <!-- Opponent: what the battle screen shows, plus its Pokédex types. -->
+      <Border BorderBrush="{StaticResource Ink}" BorderThickness="4" CornerRadius="22"
+              Background="{StaticResource PanelAltDeep}" BoxShadow="{StaticResource ShadowHero}"
+              Padding="24">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="14">
+            <TextBlock Text="{Binding OpponentName}" Classes="display" FontSize="27"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding OpponentLevel}" Classes="mono"
+                       Foreground="{StaticResource Lavender}" FontSize="16"
+                       VerticalAlignment="Center" />
+            <ItemsControl Grid.Column="2" ItemsSource="{Binding OpponentTypes}"
+                          ItemTemplate="{StaticResource InkChipTemplate}"
+                          ItemsPanel="{StaticResource ChipWrap}" VerticalAlignment="Center"
+                          Margin="4,7,0,0" />
+            <TextBlock Grid.Column="3" Text="{Binding OpponentStatus}" Classes="strong"
+                       Foreground="{StaticResource Alert}" VerticalAlignment="Center" />
+          </Grid>
+          <ProgressBar Value="{Binding OpponentHpPercent}" Maximum="100" Height="10"
+                       Foreground="{Binding OpponentHpBrush}" />
+          <TextBlock Text="{Binding Assumption}" FontSize="12"
+                     Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+
+        <!-- Offence: the active Pokémon's moves against it. -->
+        <Border Classes="panel" Padding="20">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="strong" FontSize="16">
+              <Run Text="Your moves" />
+              <Run Text="{Binding ActiveName, Mode=OneWay, StringFormat=' · {0}'}" Foreground="{StaticResource TextMuted}" />
+            </TextBlock>
+            <TextBlock Text="Your Pokémon on the field is not in the party read yet."
+                       Foreground="{StaticResource TextMuted}" TextWrapping="Wrap"
+                       IsVisible="{Binding !HasActive}" />
+            <ItemsControl ItemsSource="{Binding Moves}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:BattleMoveRow">
+                  <Grid ColumnDefinitions="*,110,96,40" ColumnSpacing="10" Margin="0,3">
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                    <ContentControl Grid.Column="1" Content="{Binding Type}"
+                                    ContentTemplate="{StaticResource InkChipTemplate}" />
+                    <TextBlock Grid.Column="2" Text="{Binding Multiplier}" Classes="display"
+                               FontSize="18" Foreground="{Binding MultiplierBrush}"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="3" Text="{Binding Stab}" Classes="mono" FontSize="11"
+                               Foreground="{StaticResource Accent}" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Defence: its own types against the active Pokémon. -->
+        <Border Grid.Column="1" Classes="panel" Padding="20">
+          <StackPanel Spacing="10">
+            <TextBlock Text="It hits you with" Classes="strong" FontSize="16" />
+            <ItemsControl ItemsSource="{Binding Incoming}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:IncomingRow">
+                  <Grid ColumnDefinitions="110,*" ColumnSpacing="10" Margin="0,3">
+                    <ContentControl Content="{Binding Type}"
+                                    ContentTemplate="{StaticResource InkChipTemplate}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Multiplier}" Classes="display"
+                               FontSize="18" Foreground="{Binding MultiplierBrush}"
+                               VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding Verdict}" Classes="strong"
+                       Foreground="{Binding VerdictBrush}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <!-- Who to switch to: both numbers shown, never folded into a score. -->
+      <Border Classes="panel" Padding="20">
+        <StackPanel Spacing="8">
+          <Grid ColumnDefinitions="*,70,70,170" ColumnSpacing="10">
+            <TextBlock Text="Switch options" Classes="strong" FontSize="16" />
+            <TextBlock Grid.Column="1" Text="takes" Classes="mono" FontSize="11"
+                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
+            <TextBlock Grid.Column="2" Text="hits" Classes="mono" FontSize="11"
+                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
+            <TextBlock Grid.Column="3" Text="with" Classes="mono" FontSize="11"
+                       Foreground="{StaticResource TextMuted}" VerticalAlignment="Bottom" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Switches}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SwitchRow">
+                <Grid ColumnDefinitions="*,70,70,170" ColumnSpacing="10" Margin="0,3"
+                      Opacity="{Binding Opacity}">
+                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding Takes}" Classes="display" FontSize="16"
+                             Foreground="{Binding TakesBrush}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Text="{Binding Hits}" Classes="display" FontSize="16"
+                             Foreground="{Binding HitsBrush}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="3" Text="{Binding Move}" Foreground="{StaticResource TextMuted}"
+                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+
+        <!-- What hurts it: the chart for its types, grouped, neutral left out. -->
+        <Border Classes="panel" Padding="20">
+          <StackPanel Spacing="10">
+            <TextBlock Text="What hurts it" Classes="strong" FontSize="16" />
+            <ItemsControl ItemsSource="{Binding Weaknesses}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:WeaknessRow">
+                  <Grid ColumnDefinitions="64,*" ColumnSpacing="10" Margin="0,2">
+                    <TextBlock Text="{Binding Multiplier}" Classes="display" FontSize="16"
+                               Foreground="{Binding MultiplierBrush}" Margin="0,5,0,0" />
+                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Types}"
+                                  ItemTemplate="{StaticResource InkChipTemplate}"
+                                  ItemsPanel="{StaticResource ChipWrap}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Catch chance per throw, wild battles only. -->
+        <Border Grid.Column="1" Classes="panel" Padding="20" MinWidth="260"
+                IsVisible="{Binding HasCatches}" VerticalAlignment="Top">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Catch chance" Classes="strong" FontSize="16" />
+            <ItemsControl ItemsSource="{Binding Catches}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CatchRow">
+                  <StackPanel Spacing="3" Margin="0,3">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="{Binding Ball}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Chance}" Classes="mono" />
+                    </Grid>
+                    <ProgressBar Value="{Binding Percent}" Maximum="100" Height="6"
+                                 Foreground="{StaticResource Info}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Per throw, at its current HP and status." FontSize="12"
+                       Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

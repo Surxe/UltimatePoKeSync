@@ -273,7 +273,7 @@
       <Border Grid.Row="3" Background="{StaticResource TabBg}"
               IsVisible="{Binding IsConnected}"
               BorderBrush="{StaticResource Ink}" BorderThickness="0,0,0,4" Padding="14,0">
-        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
           <Button Classes="tab" Classes.on="{Binding IsPokemonTab}" Content="Pokémon"
                   Command="{Binding ShowTabCommand}"
                   CommandParameter="{x:Static vm:DashboardTab.Pokemon}" />
@@ -297,7 +297,11 @@
                   Content="Team hints"
                   Command="{Binding ShowTabCommand}"
                   CommandParameter="{x:Static vm:DashboardTab.TeamHints}" />
-          <Button Grid.Column="7" Classes="tab bridge" Classes.on="{Binding IsBridgeTab}"
+          <Button Grid.Column="6" Classes="tab" Classes.on="{Binding IsBattleTab}"
+                  Content="Battle"
+                  Command="{Binding ShowTabCommand}"
+                  CommandParameter="{x:Static vm:DashboardTab.Battle}" />
+          <Button Grid.Column="8" Classes="tab bridge" Classes.on="{Binding IsBridgeTab}"
                   Content="Bridge"
                   Command="{Binding ShowTabCommand}"
                   CommandParameter="{x:Static vm:DashboardTab.Bridge}" />
@@ -1521,6 +1525,11 @@
                Team hints says what can be caught at the selected story point. -->
           <ScrollViewer IsVisible="{Binding IsTeamHintsTab}">
             <views:TeamHintsView Margin="22,24,28,30" />
+          </ScrollViewer>
+
+          <!-- The opponent on the field and how the party lines up against it (D-077). -->
+          <ScrollViewer IsVisible="{Binding IsBattleTab}">
+            <views:BattleView DataContext="{Binding Battle}" Margin="22,24,28,30" />
           </ScrollViewer>
 
           <!-- The seventh screen shares the shell while live. -->
