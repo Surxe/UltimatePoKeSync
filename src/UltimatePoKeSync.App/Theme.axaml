@@ -126,6 +126,18 @@
     </Border>
   </DataTemplate>
 
+  <!-- The same chip at a smaller size, for the Battle tab's tree diagrams. -->
+  <DataTemplate x:Key="InkChipSmallTemplate" x:DataType="vm:TypeChip">
+    <Border Classes="chip" Padding="7,1" Background="{Binding Brush}"
+            Margin="0,0,5,0" ToolTip.Tip="{Binding Detail}" VerticalAlignment="Center">
+      <TextBlock Text="{Binding UpperType}" FontSize="10" Foreground="#0D1A0C" />
+    </Border>
+  </DataTemplate>
+
+  <ItemsPanelTemplate x:Key="ChipRow">
+    <StackPanel Orientation="Horizontal" />
+  </ItemsPanelTemplate>
+
   <ItemsPanelTemplate x:Key="ChipWrap">
     <WrapPanel Orientation="Horizontal" />
   </ItemsPanelTemplate>
